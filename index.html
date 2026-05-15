@@ -155,7 +155,7 @@ header{flex-direction:column;align-items:stretch}
 
 <div class="settings" id="settings">
 <button class="settings-tog" id="settingsTog">
-<span><i class="ti ti-settings"></i>&nbsp;&nbsp;Configuración de Google Maps API</span>
+<span><i class="ti ti-settings"></i>&nbsp;&nbsp;Configuración</span>
 <i class="ti ti-chevron-down chev"></i>
 </button>
 <div class="settings-body">
@@ -163,6 +163,11 @@ header{flex-direction:column;align-items:stretch}
 <div><label for="apiKey">Google Maps API Key</label><input type="password" id="apiKey" placeholder="AIzaSy..." autocomplete="off"></div>
 <div style="display:flex;gap:8px;align-items:end"><button class="btn btn-s" id="testKey"><i class="ti ti-check"></i> Probar y guardar</button><button class="btn btn-g btn-d" id="clearKey"><i class="ti ti-trash"></i></button></div>
 </div>
+<div class="set-row" style="margin-top:14px">
+<div><label for="driverHome">Casa del conductor (punto de salida y regreso)</label><input type="text" id="driverHome" placeholder="Ej: 5500 SW 120th Ave, Miami, FL 33183"></div>
+<div style="display:flex;gap:8px;align-items:end"><button class="btn btn-s" id="saveDriverHome"><i class="ti ti-check"></i> Guardar</button></div>
+</div>
+<p style="font-size:11px;color:var(--t3);margin:6px 0 0 0">El primer viaje del día sale desde aquí y el último termina aquí. Si lo dejas vacío, se usa NowCare.</p>
 <div class="info-box">
 <strong>Cómo obtener tu API key (5 min):</strong><br>
 1. Entra a <a href="https://console.cloud.google.com/google/maps-apis/start" target="_blank" rel="noopener">Google Maps Platform Console</a> y crea un proyecto<br>
@@ -222,7 +227,7 @@ header{flex-direction:column;align-items:stretch}
 const NOWCARE_ADDR='14601 SW 104th St, Miami, FL 33186';
 const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12;
 
-const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false};
+const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null};
 
 function todayISO(){const d=new Date(),tz=d.getTimezoneOffset();return new Date(d.getTime()-tz*60000).toISOString().split('T')[0]}
 function t2m(t){if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m}
@@ -392,7 +397,14 @@ async function planRoutes(){
   valid.forEach(p=>{p.endTime=t2m(p.time)+(p.duration||45)});
 
   let depot=null;
-  if(S.apiReady){try{depot=await geocode(NOWCARE_ADDR)}catch(e){console.error('Depot geocode:',e)}}
+  let driverDepot=null;
+  if(S.apiReady){
+    try{depot=await geocode(NOWCARE_ADDR)}catch(e){console.error('Depot geocode:',e)}
+    if(S.driverHome){
+      try{driverDepot=await geocode(S.driverHome)}catch(e){console.error('Driver home geocode:',e);toast('No se pudo geocodificar casa del conductor','err')}
+    }
+  }
+  const firstDepot=driverDepot||depot;
 
   const outG=groupOut(valid);
   const trips=[];
@@ -402,8 +414,9 @@ async function planRoutes(){
     const g=outG[idx];
     let opt={order:g.map((_,i)=>i),legs:null};
     let real=false;
-    if(S.apiReady&&depot){
-      try{opt=await optOutbound(g,depot);real=true}
+    const tripDepot=idx===0?firstDepot:depot;
+    if(S.apiReady&&tripDepot){
+      try{opt=await optOutbound(g,tripDepot);real=true}
       catch(e){console.error('Opt trip '+(idx+1)+':',e);toast('Error optimizando: '+e.message,'err')}
     }
     const ordered=opt.order.map(i=>g[i]);
@@ -433,6 +446,7 @@ async function planRoutes(){
     const lateBy=Math.max(0,arrM-earliestM);
     trips.push({
       kind:'outbound',patients:ordered,pickupStops:ps,realDist:real,
+      origin:idx===0&&S.driverHome?{address:S.driverHome,label:'Casa del conductor'}:null,
       dropoff:{address:ordered[0].dropoff,label:shortLbl(ordered[0].dropoff),time:m2t(arrM),leg:legs[n]},
       depTime:m2t(departure),arrTime:m2t(arrM),totalMin:arrM-departure,
       earliest:m2t(earliestM),latest:m2t(latestM),warning,lateBy
@@ -484,6 +498,20 @@ async function planRoutes(){
     return ta-tb;
   });
   trips.forEach((t,i)=>t.number=i+1);
+
+  if(S.driverHome&&S.apiReady&&driverDepot&&trips.length){
+    const last=trips[trips.length-1];
+    let lastAddr;
+    if(last.kind==='outbound')lastAddr=last.dropoff.address;
+    else lastAddr=last.dropoffStops[last.dropoffStops.length-1].address;
+    try{
+      const lastCoord=await geocode(lastAddr);
+      const mtx=await distMatrix([lastCoord],[driverDepot]);
+      const homeLeg=mtx[0][0]?mtx[0][0].dur:FALLBACK_MIN;
+      last.returnHome={address:S.driverHome,label:'Casa del conductor',leg:homeLeg};
+    }catch(e){console.error('Return home leg:',e)}
+  }
+
   return trips;
 }
 
@@ -575,6 +603,11 @@ function renderOut(t){
     '</div></div>'+
     (t.warning?'<div class="warn"><i class="ti ti-alert-triangle"></i> '+t.warning+'</div>':'')+
     (t.lateBy>0?'<div class="warn err"><i class="ti ti-alert-circle"></i> Llegada '+t.lateBy+' min después de la primera cita.</div>':'')+
+    (t.origin?'<p class="trip-stg">Punto de salida</p>'+
+      '<div class="stop"><div class="s-num"><i class="ti ti-home"></i></div>'+
+        '<div class="s-info"><p class="s-name">'+esc(t.origin.label)+'</p><p class="s-addr">'+esc(t.origin.address)+'</p></div>'+
+        '<div class="s-time">Salida <strong>'+fmt12(t.depTime)+'</strong></div>'+
+      '</div>':'')+
     '<p class="trip-stg">Pickups</p>'+
     t.pickupStops.map((s,i)=>
       '<div class="stop"><div class="s-num pk">'+(i+1)+'</div>'+
@@ -592,6 +625,11 @@ function renderOut(t){
       '<div class="s-info"><p class="s-name">'+esc(t.dropoff.label)+'</p><p class="s-addr">'+esc(t.dropoff.address)+'</p></div>'+
       '<div class="s-time">Llegada <strong>'+fmt12(t.arrTime)+'</strong>'+(t.realDist?'<span class="leg">+'+t.dropoff.leg+' min</span>':'')+'</div>'+
     '</div>'+
+    (t.returnHome?'<p class="trip-stg">Fin del día — regreso del conductor</p>'+
+      '<div class="stop"><div class="s-num"><i class="ti ti-home"></i></div>'+
+        '<div class="s-info"><p class="s-name">'+esc(t.returnHome.label)+'</p><p class="s-addr">'+esc(t.returnHome.address)+'</p></div>'+
+        '<div class="s-time"><span class="leg">+'+t.returnHome.leg+' min</span></div>'+
+      '</div>':'')+
     '<a class="gmaps" href="'+url+'" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Abrir ruta en Google Maps</a>'+
   '</div>';
 }
@@ -625,6 +663,11 @@ function renderRet(t){
         '<div class="s-time">Dropoff <strong>'+fmt12(s.time)+'</strong>'+(t.realDist?'<span class="leg">+'+s.leg+' min</span>':'')+'</div>'+
       '</div>'
     ).join('')+
+    (t.returnHome?'<p class="trip-stg">Fin del día — regreso del conductor</p>'+
+      '<div class="stop"><div class="s-num"><i class="ti ti-home"></i></div>'+
+        '<div class="s-info"><p class="s-name">'+esc(t.returnHome.label)+'</p><p class="s-addr">'+esc(t.returnHome.address)+'</p></div>'+
+        '<div class="s-time"><span class="leg">+'+t.returnHome.leg+' min</span></div>'+
+      '</div>':'')+
     '<a class="gmaps" href="'+url+'" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Abrir ruta en Google Maps</a>'+
   '</div>';
 }
@@ -678,6 +721,7 @@ function loadDemo(){
 
 function init(){
   S.apiKey=lsLoad('apiKey',null);
+  S.driverHome=lsLoad('driverHome',null);
   S.geocodeCache=lsLoad('geocodeCache',{});
   loadPts();
 
@@ -715,6 +759,17 @@ function init(){
     S.apiKey=null;S.apiReady=false;S.apiError=null;
     lsSave('apiKey',null);ak.value='';
     toast('API key borrada');renderApiStatus();
+  });
+
+  const dh=document.getElementById('driverHome');
+  if(S.driverHome)dh.value=S.driverHome;
+  document.getElementById('saveDriverHome').addEventListener('click',()=>{
+    const v=dh.value.trim();
+    S.driverHome=v||null;
+    lsSave('driverHome',S.driverHome);
+    S.trips=[];
+    toast(v?'Casa del conductor guardada':'Casa del conductor borrada','ok');
+    renderAll();
   });
 
   setupForm();
