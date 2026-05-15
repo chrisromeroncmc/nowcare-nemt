@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NowCare NEMT Route Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css" rel="stylesheet">
+<style>
+:root{--bg:#FAFAF7;--surf:#FFF;--surf2:#F4F3EE;--bdr:#E5E2D9;--bdr2:#D3D0C5;--t:#1A1A1A;--t2:#6B6B66;--t3:#94928A;--teal:#0F6E56;--teal-d:#085041;--teal-l:#E1F5EE;--teal-b:#B8E4D3;--amber:#854F0B;--amber-l:#FAEEDA;--amber-b:#F0D9A8;--red:#A32D2D;--red-l:#FCEBEB;--red-b:#F5C5C5;--green:#3B6D11;--green-l:#EAF3DE;--blue:#185FA5;--blue-l:#E6F1FB;--blue-b:#B5D4F4}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:'IBM Plex Sans',-apple-system,sans-serif;background:var(--bg);color:var(--t);-webkit-font-smoothing:antialiased;font-size:14px;line-height:1.5}
+.wrap{max-width:1080px;margin:0 auto;padding:2rem 1.5rem 5rem}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem;gap:1rem;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:14px}
+.logo{width:44px;height:44px;background:var(--teal);color:#fff;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;letter-spacing:-.5px}
+.brand h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.3px}
+.brand p{margin:2px 0 0;font-size:12px;color:var(--t2)}
+.hr-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.status{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:500;font-family:'IBM Plex Mono',monospace;background:var(--surf);border:1px solid var(--bdr)}
+.status.ok{background:var(--teal-l);color:var(--teal-d);border-color:var(--teal-b)}
+.status.warn{background:var(--amber-l);color:var(--amber);border-color:var(--amber-b)}
+.status.err{background:var(--red-l);color:var(--red);border-color:var(--red-b)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.date-pill{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surf);border:1px solid var(--bdr);border-radius:999px}
+.date-pill input{border:none;background:transparent;font-family:inherit;font-size:13px;color:var(--t);padding:0}
+.date-pill input:focus{outline:none}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:2rem}
+.stat{background:var(--surf);border:1px solid var(--bdr);border-radius:12px;padding:16px 18px}
+.stat-l{font-size:11px;color:var(--t2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;font-weight:500}
+.stat-v{font-size:26px;font-weight:600;letter-spacing:-.5px;line-height:1}
+.stat-s{font-size:11px;color:var(--t3);margin-top:4px}
+.sec{margin-bottom:2rem}
+.sec-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap}
+.sec-t{font-size:15px;font-weight:600;margin:0;letter-spacing:-.2px}
+.card{background:var(--surf);border:1px solid var(--bdr);border-radius:14px;padding:1.25rem 1.5rem}
+.settings{background:var(--surf);border:1px solid var(--bdr);border-radius:14px;margin-bottom:2rem;overflow:hidden}
+.settings-tog{width:100%;display:flex;justify-content:space-between;align-items:center;padding:14px 1.5rem;background:var(--surf2);border:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;color:var(--t)}
+.settings-tog:hover{background:#ECEAE3}
+.settings-tog .chev{transition:transform .2s}
+.settings.open .settings-tog .chev{transform:rotate(180deg)}
+.settings-body{padding:1.25rem 1.5rem;display:none;border-top:1px solid var(--bdr)}
+.settings.open .settings-body{display:block}
+.set-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}
+.info-box{margin-top:12px;padding:14px 16px;background:var(--blue-l);border:1px solid var(--blue-b);border-radius:10px;font-size:12px;color:var(--blue);line-height:1.7}
+.info-box a{color:inherit;font-weight:500}
+.info-box code{font-family:'IBM Plex Mono',monospace;background:rgba(24,95,165,.1);padding:1px 6px;border-radius:4px;font-size:11px}
+.form{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.f-full{grid-column:1/-1}
+.f-2{grid-column:span 2}
+.f-row{display:flex;flex-direction:column}
+label{font-size:11px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:500}
+input[type=text],input[type=time],input[type=tel],input[type=number],input[type=date],input[type=password],select{width:100%;padding:10px 12px;border:1px solid var(--bdr);border-radius:8px;background:var(--surf);font-family:inherit;font-size:13px;color:var(--t);transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(15,110,86,.1)}
+input:disabled{background:var(--surf2);color:var(--t3);cursor:not-allowed}
+.in-grp{display:grid;grid-template-columns:140px 1fr;gap:8px}
+.chk{display:inline-flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:10px 0}
+.chk input{width:16px;height:16px;accent-color:var(--teal);cursor:pointer}
+.hint{font-size:11px;color:var(--t3);margin-top:6px}
+.btn{padding:10px 16px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;transition:all .15s;white-space:nowrap}
+.btn-p{background:var(--teal);color:#fff;border-color:var(--teal)}
+.btn-p:hover:not(:disabled){background:var(--teal-d);border-color:var(--teal-d)}
+.btn-p:disabled{opacity:.5;cursor:not-allowed}
+.btn-s{background:var(--surf);color:var(--t);border-color:var(--bdr2)}
+.btn-s:hover{background:var(--surf2)}
+.btn-g{background:transparent;color:var(--t2);border-color:transparent;padding:6px 10px}
+.btn-g:hover{background:var(--surf2);color:var(--t)}
+.btn-d{color:var(--red)}
+.btn-d:hover{background:var(--red-l)}
+.f-actions{display:flex;gap:8px;margin-top:6px}
+.empty{text-align:center;padding:3rem 1rem;color:var(--t2);background:var(--surf);border:1px dashed var(--bdr2);border-radius:14px;font-size:13px}
+.empty i{font-size:32px;color:var(--t3);display:block;margin-bottom:10px}
+.p-row{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--bdr)}
+.p-row:last-child{border-bottom:none}
+.p-info{flex:1;min-width:0}
+.p-name{font-size:14px;font-weight:500;margin:0 0 4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.p-meta{font-size:12px;color:var(--t2);margin:0;display:flex;align-items:center;gap:4px;word-break:break-word}
+.p-route{font-size:11px;color:var(--t3);margin:4px 0 0;display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.p-time{font-size:14px;font-weight:500;white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right;font-family:'IBM Plex Mono',monospace}
+.p-time small{display:block;font-size:10px;font-weight:400;color:var(--t3);margin-top:2px;font-family:inherit}
+.bdg{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;font-size:10px;border-radius:999px;font-weight:500}
+.bdg-bl{background:var(--blue-l);color:var(--blue)}
+.bdg-am{background:var(--amber-l);color:var(--amber)}
+.bdg-gn{background:var(--green-l);color:var(--green)}
+.bdg-gr{background:var(--surf2);color:var(--t2)}
+.bdg-tl{background:var(--teal-l);color:var(--teal-d)}
+.ico-b{width:30px;height:30px;border-radius:6px;border:1px solid transparent;background:transparent;cursor:pointer;color:var(--t3);font-size:16px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.ico-b:hover{background:var(--surf2);color:var(--t)}
+.plan-acts{display:flex;gap:10px;align-items:center;justify-content:space-between;margin:1.5rem 0;flex-wrap:wrap}
+.trip{background:var(--surf);border:1px solid var(--bdr);border-radius:14px;padding:1.25rem 1.5rem;margin-bottom:14px}
+.trip.ret{border-left:4px solid var(--green)}
+.trip.out{border-left:4px solid var(--blue)}
+.trip-h{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--bdr);gap:14px;flex-wrap:wrap}
+.trip-t{font-size:16px;font-weight:600;margin:0;display:flex;align-items:center;gap:8px;letter-spacing:-.2px;flex-wrap:wrap}
+.trip-n{width:24px;height:24px;border-radius:50%;background:var(--surf2);color:var(--t2);font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace}
+.trip-s{font-size:12px;color:var(--t2);margin:4px 0 0}
+.trip-st{display:flex;gap:20px;margin-top:8px;font-size:12px;color:var(--t2);flex-wrap:wrap;font-family:'IBM Plex Mono',monospace}
+.trip-st strong{color:var(--t);font-weight:600}
+.trip-stg{font-size:10px;color:var(--t3);margin:1rem 0 6px;text-transform:uppercase;letter-spacing:.8px;font-weight:500}
+.trip-stg:first-of-type{margin-top:.5rem}
+.stop{display:flex;gap:12px;padding:12px 0;align-items:flex-start;border-bottom:1px dashed var(--bdr)}
+.stop:last-of-type{border-bottom:none}
+.s-num{width:28px;height:28px;border-radius:50%;background:var(--surf2);color:var(--t2);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:'IBM Plex Mono',monospace}
+.s-num.pk{background:var(--blue-l);color:var(--blue)}
+.s-num.dr{background:var(--green-l);color:var(--green)}
+.s-info{flex:1;min-width:0}
+.s-name{font-size:13px;font-weight:500;margin:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.s-addr{font-size:12px;color:var(--t2);margin:3px 0 0;word-break:break-word}
+.s-note{font-size:11px;color:var(--t3);font-style:italic;margin:4px 0 0}
+.s-time{font-size:11px;color:var(--t2);white-space:nowrap;text-align:right;line-height:1.4;font-family:'IBM Plex Mono',monospace}
+.s-time strong{display:block;color:var(--t);font-size:13px;font-weight:600}
+.s-time .leg{display:block;font-size:10px;color:var(--t3);margin-top:2px}
+.warn{background:var(--amber-l);color:var(--amber);padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px;display:flex;gap:8px;align-items:flex-start;border:1px solid var(--amber-b)}
+.warn.err{background:var(--red-l);color:var(--red);border-color:var(--red-b)}
+.gmaps{display:inline-flex;align-items:center;gap:6px;padding:10px 16px;background:var(--teal);color:#fff;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none;margin-top:14px}
+.gmaps:hover{background:var(--teal-d)}
+.tel{color:var(--blue);text-decoration:none;display:inline-flex;align-items:center;gap:3px;font-size:11px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--t);color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:100;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;display:flex;align-items:center;gap:8px;max-width:90%}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+.toast.err{background:var(--red)}
+.toast.ok{background:var(--teal)}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--bdr);border-top-color:var(--teal);border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.mode-i{font-size:11px;padding:4px 10px;border-radius:999px;font-weight:500;font-family:'IBM Plex Mono',monospace;display:inline-flex;align-items:center;gap:4px}
+.mode-i.real{background:var(--teal-l);color:var(--teal-d)}
+.mode-i.est{background:var(--amber-l);color:var(--amber)}
+@media(max-width:720px){
+.wrap{padding:1rem;padding-bottom:4rem}
+header{flex-direction:column;align-items:stretch}
+.hr-right{justify-content:space-between}
+.stats{grid-template-columns:repeat(2,1fr)}
+.form{grid-template-columns:1fr}
+.f-2{grid-column:auto}
+.in-grp{grid-template-columns:1fr}
+.trip-h{flex-direction:column}
+.set-row{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="brand">
+<div class="logo">NC</div>
+<div><h1>NEMT Route Planner</h1><p>NowCare Medical Center · Van 4 pasajeros</p></div>
+</div>
+<div class="hr-right">
+<div class="status" id="apiStatus"><span class="dot"></span><span id="apiStatusText">Inicializando</span></div>
+<div class="date-pill"><i class="ti ti-calendar"></i><input type="date" id="date" aria-label="Fecha"></div>
+</div>
+</header>
+
+<div class="settings" id="settings">
+<button class="settings-tog" id="settingsTog">
+<span><i class="ti ti-settings"></i>&nbsp;&nbsp;Configuración de Google Maps API</span>
+<i class="ti ti-chevron-down chev"></i>
+</button>
+<div class="settings-body">
+<div class="set-row">
+<div><label for="apiKey">Google Maps API Key</label><input type="password" id="apiKey" placeholder="AIzaSy..." autocomplete="off"></div>
+<div style="display:flex;gap:8px;align-items:end"><button class="btn btn-s" id="testKey"><i class="ti ti-check"></i> Probar y guardar</button><button class="btn btn-g btn-d" id="clearKey"><i class="ti ti-trash"></i></button></div>
+</div>
+<div class="info-box">
+<strong>Cómo obtener tu API key (5 min):</strong><br>
+1. Entra a <a href="https://console.cloud.google.com/google/maps-apis/start" target="_blank" rel="noopener">Google Maps Platform Console</a> y crea un proyecto<br>
+2. En "APIs habilitadas", activa: <code>Maps JavaScript API</code> · <code>Geocoding API</code> · <code>Distance Matrix API</code><br>
+3. En "Credentials", crea una API key y restringe por HTTP referrer al dominio donde subes el archivo<br>
+4. Google da $200 mensuales gratis · tu uso típico costará $0
+</div>
+</div>
+</div>
+
+<div class="stats" id="stats"></div>
+
+<div class="sec">
+<div class="sec-h">
+<h2 class="sec-t">Agregar paciente</h2>
+<button class="btn btn-g" id="demoBtn"><i class="ti ti-sparkles"></i> Cargar ejemplo</button>
+</div>
+<div class="card">
+<div class="form">
+<div class="f-row f-2"><label for="pName">Nombre completo *</label><input type="text" id="pName" placeholder="María Pérez"></div>
+<div class="f-row"><label for="pPhone">Teléfono</label><input type="tel" id="pPhone" placeholder="(305) 555-0123"></div>
+<div class="f-row f-full"><label for="pAddr">Dirección de pickup (casa) *</label><input type="text" id="pAddr" placeholder="8500 SW 8th St, Miami, FL 33144"></div>
+<div class="f-row"><label for="pTime">Hora de cita *</label><input type="time" id="pTime"></div>
+<div class="f-row"><label for="pDuration">Duración cita (min)</label><input type="number" id="pDuration" min="15" max="240" step="15" value="45"></div>
+<div class="f-row"><label>Movilidad</label><label class="chk"><input type="checkbox" id="pWheel"> Silla de ruedas</label></div>
+<div class="f-row f-full"><label for="dropPreset">Destino de la cita (dropoff) *</label>
+<div class="in-grp"><select id="dropPreset"><option value="nowcare">NowCare</option><option value="custom">Otro destino</option></select><input type="text" id="pDrop" placeholder="Auto-completado con NowCare"></div>
+</div>
+<div class="f-row f-full"><label for="returnPreset">Regreso después de la cita</label>
+<div class="in-grp"><select id="returnPreset"><option value="home">Regresar a casa</option><option value="custom">Otra dirección</option><option value="none">No necesita regreso</option></select><input type="text" id="pReturn" placeholder="Auto-completado con pickup"></div>
+</div>
+<div class="f-row f-full"><label for="pNotes">Notas especiales</label><input type="text" id="pNotes" placeholder="Apto 205, llamar al llegar, oxígeno portátil..."></div>
+<div class="f-actions f-full">
+<button class="btn btn-p" id="addBtn"><i class="ti ti-plus"></i> Agregar paciente</button>
+<button class="btn btn-s" id="clearFormBtn">Limpiar</button>
+</div>
+</div>
+</div>
+</div>
+
+<div class="sec">
+<div class="sec-h"><h2 class="sec-t">Pacientes del día</h2><span class="hint" id="pCount"></span></div>
+<div id="pList"></div>
+</div>
+
+<div class="plan-acts">
+<button class="btn btn-p" id="planBtn" style="padding:12px 24px;font-size:14px"><i class="ti ti-route"></i> <span id="planBtnText">Planificar rutas</span></button>
+<button class="btn btn-s btn-d" id="clearAll"><i class="ti ti-trash"></i> Borrar todos</button>
+</div>
+
+<div id="routes"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const NOWCARE_ADDR='14601 SW 104th St, Miami, FL 33186';
+const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12;
+
+const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false};
+
+function todayISO(){const d=new Date(),tz=d.getTimezoneOffset();return new Date(d.getTime()-tz*60000).toISOString().split('T')[0]}
+function t2m(t){if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m}
+function m2t(m){m=Math.max(0,Math.round(m));const h=Math.floor(m/60)%24,mm=m%60;return String(h).padStart(2,'0')+':'+String(mm).padStart(2,'0')}
+function fmt12(t){if(!t)return'—';const[h,m]=t.split(':').map(Number),p=h>=12?'p.m.':'a.m.',h12=h%12||12;return h12+':'+String(m).padStart(2,'0')+' '+p}
+function uid(){return Math.random().toString(36).slice(2,10)}
+function esc(s){if(!s)return'';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function norm(s){return(s||'').toLowerCase().replace(/[^\w]/g,'')}
+function isNC(a){return norm(a)===norm(NOWCARE_ADDR)}
+function shortLbl(a){return isNC(a)?'NowCare':a}
+function toast(msg,kind){const t=document.getElementById('toast');t.className='toast '+(kind||'')+' show';t.innerHTML=(kind==='ok'?'<i class="ti ti-check"></i> ':kind==='err'?'<i class="ti ti-alert-circle"></i> ':'')+msg;clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),3500)}
+
+const lsK=k=>'nowcare:nemt:'+k;
+function lsSave(k,v){try{localStorage.setItem(lsK(k),JSON.stringify(v))}catch(e){console.error(e)}}
+function lsLoad(k,d){try{const v=localStorage.getItem(lsK(k));return v?JSON.parse(v):d}catch{return d}}
+function savePts(){lsSave('patients:'+S.date,S.patients)}
+function loadPts(){S.patients=lsLoad('patients:'+S.date,[]);S.trips=[]}
+
+let gmLoadPromise=null;
+function loadGM(apiKey){
+  if(gmLoadPromise)return gmLoadPromise;
+  gmLoadPromise=new Promise((resolve,reject)=>{
+    if(window.google&&window.google.maps){resolve();return}
+    window.gm_authFailure=()=>{S.apiReady=false;S.apiError='API key rechazada por Google';renderApiStatus();reject(new Error('API key inválida'))};
+    const sc=document.createElement('script');
+    sc.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(apiKey)+'&libraries=geocoding';
+    sc.async=true;sc.defer=true;
+    sc.onload=()=>setTimeout(()=>{window.google&&window.google.maps?resolve():reject(new Error('Maps no cargó'))},250);
+    sc.onerror=()=>reject(new Error('No se pudo cargar Maps. Verifica conexión.'));
+    document.head.appendChild(sc);
+  });
+  return gmLoadPromise;
+}
+
+async function testKey(apiKey){
+  gmLoadPromise=null;
+  try{delete window.google}catch{}
+  document.querySelectorAll('script[src*="maps.googleapis.com"]').forEach(s=>s.remove());
+  await loadGM(apiKey);
+  return new Promise((resolve,reject)=>{
+    const g=new google.maps.Geocoder();
+    g.geocode({address:NOWCARE_ADDR},(res,st)=>{
+      if(st==='OK'&&res&&res.length)resolve(true);
+      else if(st==='REQUEST_DENIED')reject(new Error('API key sin permisos. Habilita Geocoding API y Distance Matrix API.'));
+      else reject(new Error('Error de Geocoding: '+st));
+    });
+  });
+}
+
+async function geocode(addr){
+  const k=norm(addr);
+  if(S.geocodeCache[k])return S.geocodeCache[k];
+  if(!S.apiReady)throw new Error('API no inicializada');
+  return new Promise((resolve,reject)=>{
+    const g=new google.maps.Geocoder();
+    g.geocode({address:addr+', Florida, USA'},(res,st)=>{
+      if(st==='OK'&&res&&res.length){
+        const l=res[0].geometry.location;
+        const c={lat:l.lat(),lng:l.lng(),formatted:res[0].formatted_address};
+        S.geocodeCache[k]=c;
+        lsSave('geocodeCache',S.geocodeCache);
+        resolve(c);
+      }else reject(new Error('No se pudo geocodificar: '+addr+' ('+st+')'));
+    });
+  });
+}
+
+async function distMatrix(origs,dests){
+  if(!S.apiReady)throw new Error('API no inicializada');
+  return new Promise((resolve,reject)=>{
+    const svc=new google.maps.DistanceMatrixService();
+    svc.getDistanceMatrix({
+      origins:origs.map(o=>new google.maps.LatLng(o.lat,o.lng)),
+      destinations:dests.map(d=>new google.maps.LatLng(d.lat,d.lng)),
+      travelMode:google.maps.TravelMode.DRIVING,
+      unitSystem:google.maps.UnitSystem.IMPERIAL
+    },(resp,st)=>{
+      if(st!=='OK'){reject(new Error('Distance Matrix: '+st));return}
+      const m=resp.rows.map(r=>r.elements.map(e=>e.status==='OK'?{dur:Math.round(e.duration.value/60),dist:e.distance.value/1609.34}:null));
+      resolve(m);
+    });
+  });
+}
+
+function bestPerm(mtx,start,end,idxs){
+  function*pm(a){if(a.length<=1){yield a;return}for(let i=0;i<a.length;i++){const r=a.slice(0,i).concat(a.slice(i+1));for(const p of pm(r))yield[a[i],...p]}}
+  let best=null,bc=Infinity;
+  for(const perm of pm(idxs)){
+    let c=0,cur=start;
+    for(const i of perm){c+=mtx[cur][i];cur=i}
+    c+=mtx[cur][end];
+    if(c<bc){bc=c;best=perm}
+  }
+  return{order:best,total:bc};
+}
+
+async function optOutbound(pts,depot){
+  if(!S.apiReady||pts.length<=1)return{order:pts.map((_,i)=>i),legs:null};
+  const pc=await Promise.all(pts.map(p=>geocode(p.address)));
+  const dc=await geocode(pts[0].dropoff);
+  const all=[depot,...pc,dc];
+  const mtx=await distMatrix(all,all);
+  const dur=mtx.map(r=>r.map(e=>e?e.dur:FALLBACK_MIN));
+  const idxs=pc.map((_,i)=>i+1);
+  const dropIdx=all.length-1;
+  const{order}=bestPerm(dur,0,dropIdx,idxs);
+  const opi=order.map(i=>i-1);
+  const legs=[];let prev=0;
+  for(const i of order){legs.push(dur[prev][i]);prev=i}
+  legs.push(dur[prev][dropIdx]);
+  return{order:opi,legs};
+}
+
+async function optReturn(pts,origin){
+  if(!S.apiReady||pts.length<=1)return{order:pts.map((_,i)=>i),legs:null};
+  const oc=await geocode(origin);
+  const hc=await Promise.all(pts.map(p=>geocode(p.returnAddress)));
+  const nc=await geocode(NOWCARE_ADDR);
+  const all=[oc,...hc,nc];
+  const mtx=await distMatrix(all,all);
+  const dur=mtx.map(r=>r.map(e=>e?e.dur:FALLBACK_MIN));
+  const idxs=hc.map((_,i)=>i+1);
+  const depotIdx=all.length-1;
+  const{order}=bestPerm(dur,0,depotIdx,idxs);
+  const opi=order.map(i=>i-1);
+  const legs=[];let prev=0;
+  for(const i of order){legs.push(dur[prev][i]);prev=i}
+  legs.push(dur[prev][depotIdx]);
+  return{order:opi,legs};
+}
+
+function groupOut(pts){
+  const sorted=[...pts].sort((a,b)=>a.time.localeCompare(b.time));
+  const g=[];
+  for(const p of sorted){
+    let placed=false;
+    for(const grp of g){
+      if(grp.length>=VAN_CAP)continue;
+      if(norm(grp[0].dropoff)!==norm(p.dropoff))continue;
+      if(t2m(p.time)-t2m(grp[0].time)>60)continue;
+      grp.push(p);placed=true;break;
+    }
+    if(!placed)g.push([p]);
+  }
+  return g;
+}
+
+function groupRet(pts){
+  const sorted=[...pts].sort((a,b)=>a.endTime-b.endTime);
+  const g=[];
+  for(const p of sorted){
+    let placed=false;
+    for(const grp of g){
+      if(grp.length>=VAN_CAP)continue;
+      if(norm(grp[0].dropoff)!==norm(p.dropoff))continue;
+      if(p.endTime-grp[0].endTime>45)continue;
+      grp.push(p);placed=true;break;
+    }
+    if(!placed)g.push([p]);
+  }
+  return g;
+}
+
+async function planRoutes(){
+  const valid=S.patients.filter(p=>p.name&&p.address&&p.dropoff&&p.time);
+  if(!valid.length)return[];
+  valid.forEach(p=>{p.endTime=t2m(p.time)+(p.duration||45)});
+
+  let depot=null;
+  if(S.apiReady){try{depot=await geocode(NOWCARE_ADDR)}catch(e){console.error('Depot geocode:',e)}}
+
+  const outG=groupOut(valid);
+  const trips=[];
+  let vanReady=null;
+
+  for(let idx=0;idx<outG.length;idx++){
+    const g=outG[idx];
+    let opt={order:g.map((_,i)=>i),legs:null};
+    let real=false;
+    if(S.apiReady&&depot){
+      try{opt=await optOutbound(g,depot);real=true}
+      catch(e){console.error('Opt trip '+(idx+1)+':',e);toast('Error optimizando: '+e.message,'err')}
+    }
+    const ordered=opt.order.map(i=>g[i]);
+    const n=ordered.length;
+    const legs=opt.legs||new Array(n+1).fill(FALLBACK_MIN);
+    const earliestM=Math.min(...ordered.map(p=>t2m(p.time)));
+    const latestM=Math.max(...ordered.map(p=>t2m(p.time)));
+    const targetM=earliestM-BUFFER_MIN;
+    const totalTrav=legs.reduce((a,b)=>a+b,0);
+    const totalMin=totalTrav+n*STOP_TIME;
+    let departure=targetM-totalMin;
+    let warning=null;
+    if(vanReady!==null&&departure<vanReady){
+      departure=vanReady;
+      warning='Van regresa de viaje previo a las '+fmt12(m2t(vanReady))+'. Pickup ajustado.';
+    }
+    let cum=departure;
+    const ps=ordered.map((p,i)=>{
+      cum+=legs[i];
+      const at=cum;
+      cum+=STOP_TIME;
+      return{kind:'pickup',patient:p,time:m2t(at),leg:legs[i]};
+    });
+    const arrM=cum+legs[n];
+    const tripEndM=arrM+n*STOP_TIME;
+    vanReady=tripEndM+5;
+    const lateBy=Math.max(0,arrM-earliestM);
+    trips.push({
+      kind:'outbound',patients:ordered,pickupStops:ps,realDist:real,
+      dropoff:{address:ordered[0].dropoff,label:shortLbl(ordered[0].dropoff),time:m2t(arrM),leg:legs[n]},
+      depTime:m2t(departure),arrTime:m2t(arrM),totalMin:arrM-departure,
+      earliest:m2t(earliestM),latest:m2t(latestM),warning,lateBy
+    });
+  }
+
+  const returnable=valid.filter(p=>p.returnAddress);
+  const retG=groupRet(returnable);
+
+  for(let idx=0;idx<retG.length;idx++){
+    const g=retG[idx];
+    let opt={order:g.map((_,i)=>i),legs:null};
+    let real=false;
+    if(S.apiReady){
+      try{opt=await optReturn(g,g[0].dropoff);real=true}
+      catch(e){console.error('Ret opt:',e)}
+    }
+    const ordered=opt.order.map(i=>g[i]);
+    const n=ordered.length;
+    const legs=opt.legs||new Array(n+1).fill(FALLBACK_MIN);
+    const earlReady=Math.min(...ordered.map(p=>p.endTime));
+    const lateReady=Math.max(...ordered.map(p=>p.endTime));
+    const pickReady=lateReady+RETURN_WAIT;
+    const pickM=vanReady!==null?Math.max(vanReady,pickReady):pickReady;
+    let warning=null;
+    if(vanReady!==null&&vanReady>pickReady){
+      warning='Van ocupada hasta '+fmt12(m2t(vanReady))+'. Pacientes esperan extra.';
+    }
+    let cum=pickM+n*STOP_TIME;
+    const ds=ordered.map((p,i)=>{
+      cum+=legs[i];
+      const at=cum;
+      cum+=STOP_TIME;
+      return{kind:'dropoff',patient:p,time:m2t(at),address:p.returnAddress,leg:legs[i]};
+    });
+    const finM=cum+legs[n];
+    vanReady=finM+5;
+    trips.push({
+      kind:'return',patients:ordered,dropoffStops:ds,realDist:real,
+      pickup:{address:ordered[0].dropoff,label:shortLbl(ordered[0].dropoff),time:m2t(pickM)},
+      depTime:m2t(pickM-(legs[0]||FALLBACK_MIN)),pickTime:m2t(pickM),finTime:m2t(finM),
+      totalMin:finM-pickM,earliest:m2t(earlReady),latest:m2t(lateReady),warning
+    });
+  }
+
+  trips.sort((a,b)=>{
+    const ta=a.kind==='outbound'?t2m(a.depTime):t2m(a.pickTime);
+    const tb=b.kind==='outbound'?t2m(b.depTime):t2m(b.pickTime);
+    return ta-tb;
+  });
+  trips.forEach((t,i)=>t.number=i+1);
+  return trips;
+}
+
+function gmapsUrl(trip){
+  if(trip.kind==='outbound'){
+    const dest=encodeURIComponent(trip.dropoff.address);
+    const wp=trip.pickupStops.map(s=>encodeURIComponent(s.patient.address)).join('|');
+    return'https://www.google.com/maps/dir/?api=1&destination='+dest+'&waypoints='+wp+'&travelmode=driving';
+  }else{
+    const drops=trip.dropoffStops.map(s=>s.address);
+    const dest=encodeURIComponent(drops[drops.length-1]);
+    const wp=[trip.pickup.address,...drops.slice(0,-1)].map(encodeURIComponent).join('|');
+    return'https://www.google.com/maps/dir/?api=1&destination='+dest+'&waypoints='+wp+'&travelmode=driving';
+  }
+}
+
+function renderApiStatus(){
+  const el=document.getElementById('apiStatus');
+  const tx=document.getElementById('apiStatusText');
+  if(S.apiError){el.className='status err';tx.textContent='API: error'}
+  else if(S.apiReady){el.className='status ok';tx.textContent='API: activa'}
+  else if(S.apiKey){el.className='status warn';tx.textContent='API: cargando'}
+  else{el.className='status warn';tx.textContent='Modo manual'}
+}
+
+function renderStats(){
+  const wt=S.patients.filter(p=>p.time);
+  const first=wt.length?[...wt].sort((a,b)=>a.time.localeCompare(b.time))[0].time:null;
+  const rets=S.patients.filter(p=>p.returnAddress).length;
+  const items=[
+    {l:'Pacientes',v:S.patients.length,s:'agendados hoy'},
+    {l:'Viajes',v:S.trips.length||'—',s:S.trips.length?'ida + regreso':''},
+    {l:'Primera cita',v:first?fmt12(first):'—',s:first?'recoger antes':''},
+    {l:'Con regreso',v:rets,s:rets?'necesitan retorno':''}
+  ];
+  document.getElementById('stats').innerHTML=items.map(s=>
+    '<div class="stat"><div class="stat-l">'+s.l+'</div><div class="stat-v">'+s.v+'</div>'+(s.s?'<div class="stat-s">'+s.s+'</div>':'')+'</div>'
+  ).join('');
+}
+
+function renderPList(){
+  const wrap=document.getElementById('pList');
+  document.getElementById('pCount').textContent=S.patients.length+(S.patients.length===1?' paciente':' pacientes');
+  if(!S.patients.length){wrap.innerHTML='<div class="empty"><i class="ti ti-users"></i>No hay pacientes para esta fecha.</div>';return}
+  const sorted=[...S.patients].sort((a,b)=>(a.time||'99:99').localeCompare(b.time||'99:99'));
+  wrap.innerHTML='<div class="card">'+sorted.map(p=>{
+    const endStr=m2t(t2m(p.time)+(p.duration||45));
+    const retLbl=p.returnAddress?(norm(p.returnAddress)===norm(p.address)?'a casa':p.returnAddress):null;
+    return'<div class="p-row">'+
+      '<div class="p-info">'+
+        '<p class="p-name">'+esc(p.name)+
+          (p.wheelchair?' <span class="bdg bdg-bl"><i class="ti ti-wheelchair"></i> Silla</span>':'')+
+          (p.returnAddress?' <span class="bdg bdg-gn"><i class="ti ti-arrow-back-up"></i> Regreso</span>':'')+
+          (p.notes?' <span class="bdg bdg-am"><i class="ti ti-note"></i> Nota</span>':'')+
+          (!isNC(p.dropoff)?' <span class="bdg bdg-gr"><i class="ti ti-map-pin"></i> Otro destino</span>':'')+
+        '</p>'+
+        '<p class="p-meta"><i class="ti ti-home" style="font-size:11px"></i> '+esc(p.address)+(p.phone?' · '+esc(p.phone):'')+'</p>'+
+        '<p class="p-route"><i class="ti ti-arrow-right"></i> '+esc(shortLbl(p.dropoff))+(p.returnAddress?' <i class="ti ti-arrow-back-up"></i> '+esc(retLbl):'')+'</p>'+
+        (p.notes?'<p class="s-note">'+esc(p.notes)+'</p>':'')+
+      '</div>'+
+      '<div class="p-time">'+fmt12(p.time)+'<small>fin '+fmt12(endStr)+'</small></div>'+
+      '<button class="ico-b" data-del="'+p.id+'" aria-label="Eliminar"><i class="ti ti-x"></i></button>'+
+    '</div>';
+  }).join('')+'</div>';
+  wrap.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{
+    const id=b.getAttribute('data-del');
+    S.patients=S.patients.filter(p=>p.id!==id);
+    S.trips=[];savePts();renderAll();
+  }));
+}
+
+function renderRoutes(){
+  const wrap=document.getElementById('routes');
+  if(!S.trips.length){wrap.innerHTML='';return}
+  const anyReal=S.trips.some(t=>t.realDist);
+  wrap.innerHTML='<div class="sec-h" style="margin-top:1.5rem"><h2 class="sec-t">Plan del día ('+S.trips.length+' viaje'+(S.trips.length>1?'s':'')+')</h2>'+
+    '<span class="mode-i '+(anyReal?'real':'est')+'"><i class="ti '+(anyReal?'ti-map-pin':'ti-clock')+'"></i> '+(anyReal?'Tiempos reales':'Estimación fija')+'</span></div>'+
+    S.trips.map(t=>t.kind==='outbound'?renderOut(t):renderRet(t)).join('');
+}
+
+function renderOut(t){
+  const url=gmapsUrl(t);
+  const rng=t.earliest===t.latest?fmt12(t.earliest):fmt12(t.earliest)+' – '+fmt12(t.latest);
+  return'<div class="trip out">'+
+    '<div class="trip-h"><div>'+
+      '<p class="trip-t"><span class="trip-n">'+t.number+'</span><i class="ti ti-arrow-right"></i> Ida → '+esc(t.dropoff.label)+(t.realDist?' <span class="bdg bdg-tl"><i class="ti ti-route"></i> Optimizado</span>':'')+'</p>'+
+      '<p class="trip-s">'+t.patients.length+' paciente'+(t.patients.length>1?'s':'')+' · citas '+rng+'</p>'+
+      '<div class="trip-st"><span>Salida <strong>'+fmt12(t.depTime)+'</strong></span><span>Llegada <strong>'+fmt12(t.arrTime)+'</strong></span><span>Duración <strong>'+t.totalMin+' min</strong></span></div>'+
+    '</div></div>'+
+    (t.warning?'<div class="warn"><i class="ti ti-alert-triangle"></i> '+t.warning+'</div>':'')+
+    (t.lateBy>0?'<div class="warn err"><i class="ti ti-alert-circle"></i> Llegada '+t.lateBy+' min después de la primera cita.</div>':'')+
+    '<p class="trip-stg">Pickups</p>'+
+    t.pickupStops.map((s,i)=>
+      '<div class="stop"><div class="s-num pk">'+(i+1)+'</div>'+
+        '<div class="s-info"><p class="s-name">'+esc(s.patient.name)+
+          (s.patient.wheelchair?' <span class="bdg bdg-bl"><i class="ti ti-wheelchair"></i></span>':'')+
+          (s.patient.phone?' <a class="tel" href="tel:'+esc(s.patient.phone)+'"><i class="ti ti-phone"></i> '+esc(s.patient.phone)+'</a>':'')+'</p>'+
+          '<p class="s-addr">'+esc(s.patient.address)+'</p>'+
+          (s.patient.notes?'<p class="s-note">'+esc(s.patient.notes)+'</p>':'')+
+        '</div>'+
+        '<div class="s-time">Pickup <strong>'+fmt12(s.time)+'</strong>cita '+fmt12(s.patient.time)+(t.realDist?'<span class="leg">+'+s.leg+' min</span>':'')+'</div>'+
+      '</div>'
+    ).join('')+
+    '<p class="trip-stg">Dropoff</p>'+
+    '<div class="stop"><div class="s-num dr"><i class="ti ti-flag"></i></div>'+
+      '<div class="s-info"><p class="s-name">'+esc(t.dropoff.label)+'</p><p class="s-addr">'+esc(t.dropoff.address)+'</p></div>'+
+      '<div class="s-time">Llegada <strong>'+fmt12(t.arrTime)+'</strong>'+(t.realDist?'<span class="leg">+'+t.dropoff.leg+' min</span>':'')+'</div>'+
+    '</div>'+
+    '<a class="gmaps" href="'+url+'" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Abrir ruta en Google Maps</a>'+
+  '</div>';
+}
+
+function renderRet(t){
+  const url=gmapsUrl(t);
+  const rng=t.earliest===t.latest?fmt12(t.earliest):fmt12(t.earliest)+' – '+fmt12(t.latest);
+  return'<div class="trip ret">'+
+    '<div class="trip-h"><div>'+
+      '<p class="trip-t"><span class="trip-n">'+t.number+'</span><i class="ti ti-arrow-back-up"></i> Regreso desde '+esc(t.pickup.label)+(t.realDist?' <span class="bdg bdg-tl"><i class="ti ti-route"></i> Optimizado</span>':'')+'</p>'+
+      '<p class="trip-s">'+t.patients.length+' paciente'+(t.patients.length>1?'s':'')+' · listos '+rng+'</p>'+
+      '<div class="trip-st"><span>Pickup <strong>'+fmt12(t.pickTime)+'</strong></span><span>Fin <strong>'+fmt12(t.finTime)+'</strong></span><span>Duración <strong>'+t.totalMin+' min</strong></span></div>'+
+    '</div></div>'+
+    (t.warning?'<div class="warn"><i class="ti ti-alert-triangle"></i> '+t.warning+'</div>':'')+
+    '<p class="trip-stg">Pickup en clínica</p>'+
+    '<div class="stop"><div class="s-num pk"><i class="ti ti-users"></i></div>'+
+      '<div class="s-info"><p class="s-name">'+esc(t.pickup.label)+' · recoger '+t.patients.length+' paciente'+(t.patients.length>1?'s':'')+'</p>'+
+        '<p class="s-addr">'+esc(t.pickup.address)+'</p>'+
+        '<p class="s-note">'+t.patients.map(p=>esc(p.name)+(p.phone?' ('+esc(p.phone)+')':'')).join(' · ')+'</p>'+
+      '</div>'+
+      '<div class="s-time">Pickup <strong>'+fmt12(t.pickTime)+'</strong></div>'+
+    '</div>'+
+    '<p class="trip-stg">Dropoffs</p>'+
+    t.dropoffStops.map((s,i)=>
+      '<div class="stop"><div class="s-num dr">'+(i+1)+'</div>'+
+        '<div class="s-info"><p class="s-name">'+esc(s.patient.name)+
+          (s.patient.wheelchair?' <span class="bdg bdg-bl"><i class="ti ti-wheelchair"></i></span>':'')+
+          (s.patient.phone?' <a class="tel" href="tel:'+esc(s.patient.phone)+'"><i class="ti ti-phone"></i> '+esc(s.patient.phone)+'</a>':'')+'</p>'+
+          '<p class="s-addr">'+esc(s.address)+'</p>'+
+        '</div>'+
+        '<div class="s-time">Dropoff <strong>'+fmt12(s.time)+'</strong>'+(t.realDist?'<span class="leg">+'+s.leg+' min</span>':'')+'</div>'+
+      '</div>'
+    ).join('')+
+    '<a class="gmaps" href="'+url+'" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Abrir ruta en Google Maps</a>'+
+  '</div>';
+}
+
+function renderAll(){
+  renderApiStatus();renderStats();renderPList();renderRoutes();
+  document.getElementById('planBtn').disabled=!S.patients.length||S.isPlanning;
+  document.getElementById('planBtnText').innerHTML=S.isPlanning?'<span class="spin"></span> Planificando...':'Planificar rutas';
+}
+
+function setupForm(){
+  const ds=document.getElementById('dropPreset'),di=document.getElementById('pDrop');
+  function sd(){if(ds.value==='nowcare'){di.value=NOWCARE_ADDR;di.disabled=true}else{if(di.value===NOWCARE_ADDR)di.value='';di.disabled=false;di.placeholder='Ej: 8950 N Kendall Dr, Miami, FL 33176';di.focus()}}
+  ds.addEventListener('change',sd);sd();
+
+  const rs=document.getElementById('returnPreset'),ri=document.getElementById('pReturn'),ai=document.getElementById('pAddr');
+  function sr(){
+    if(rs.value==='home'){ri.value=ai.value||'(usará la dirección de pickup)';ri.disabled=true}
+    else if(rs.value==='none'){ri.value='';ri.disabled=true;ri.placeholder='Sin regreso'}
+    else{ri.value='';ri.disabled=false;ri.placeholder='Ej: 1234 Other St, Miami, FL 33156';ri.focus()}
+  }
+  rs.addEventListener('change',sr);
+  ai.addEventListener('input',()=>{if(rs.value==='home')ri.value=ai.value||'(usará la dirección de pickup)'});
+  sr();
+}
+
+function clearForm(){
+  ['pName','pTime','pAddr','pPhone','pNotes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('pWheel').checked=false;
+  document.getElementById('pDuration').value='45';
+  document.getElementById('dropPreset').value='nowcare';
+  document.getElementById('pDrop').value=NOWCARE_ADDR;
+  document.getElementById('pDrop').disabled=true;
+  document.getElementById('returnPreset').value='home';
+  document.getElementById('pReturn').value='';
+  document.getElementById('pReturn').disabled=true;
+}
+
+function loadDemo(){
+  const demo=[
+    {name:'María González',time:'08:30',duration:45,address:'8500 SW 8th St, Miami, FL 33144',dropoff:NOWCARE_ADDR,returnAddress:'8500 SW 8th St, Miami, FL 33144',phone:'(305) 555-0142',wheelchair:false,notes:'Esperarla en el lobby'},
+    {name:'Roberto Hernández',time:'08:45',duration:30,address:'12200 SW 26th St, Miami, FL 33175',dropoff:NOWCARE_ADDR,returnAddress:'12200 SW 26th St, Miami, FL 33175',phone:'(305) 555-0218',wheelchair:true,notes:'Rampa lado derecho'},
+    {name:'Carmen Díaz',time:'09:00',duration:60,address:'7320 SW 88th St, Miami, FL 33156',dropoff:NOWCARE_ADDR,returnAddress:'7320 SW 88th St, Miami, FL 33156',phone:'(305) 555-0367',wheelchair:false,notes:''},
+    {name:'Jorge Ramírez',time:'09:15',duration:45,address:'15555 SW 80th St, Miami, FL 33193',dropoff:NOWCARE_ADDR,returnAddress:null,phone:'(305) 555-0491',wheelchair:false,notes:'Hija lo recoge en NowCare'},
+    {name:'Esperanza López',time:'10:00',duration:90,address:'9800 SW 142nd Ave, Miami, FL 33186',dropoff:'8950 N Kendall Dr, Miami, FL 33176',returnAddress:'9800 SW 142nd Ave, Miami, FL 33186',phone:'(305) 555-0533',wheelchair:true,notes:'Cardiólogo Baptist · oxígeno'},
+    {name:'Luis Martínez',time:'10:15',duration:60,address:'11000 SW 112th Ave, Miami, FL 33176',dropoff:'8950 N Kendall Dr, Miami, FL 33176',returnAddress:'11000 SW 112th Ave, Miami, FL 33176',phone:'(305) 555-0688',wheelchair:false,notes:''}
+  ];
+  S.patients=demo.map(d=>Object.assign({id:uid()},d));
+  S.trips=[];savePts();renderAll();
+}
+
+function init(){
+  S.apiKey=lsLoad('apiKey',null);
+  S.geocodeCache=lsLoad('geocodeCache',{});
+  loadPts();
+
+  const dt=document.getElementById('date');
+  dt.value=S.date;
+  dt.addEventListener('change',()=>{S.date=dt.value;loadPts();renderAll()});
+
+  const st=document.getElementById('settings'),tog=document.getElementById('settingsTog');
+  tog.addEventListener('click',()=>st.classList.toggle('open'));
+  if(!S.apiKey)st.classList.add('open');
+
+  const ak=document.getElementById('apiKey');
+  if(S.apiKey)ak.value=S.apiKey;
+
+  document.getElementById('testKey').addEventListener('click',async()=>{
+    const v=ak.value.trim();
+    if(!v){toast('Ingresa una API key','err');return}
+    const btn=document.getElementById('testKey');
+    btn.innerHTML='<span class="spin"></span> Probando...';btn.disabled=true;
+    try{
+      await testKey(v);
+      S.apiKey=v;S.apiReady=true;S.apiError=null;
+      lsSave('apiKey',v);
+      toast('API key verificada y guardada','ok');
+      btn.innerHTML='<i class="ti ti-check"></i> Probar y guardar';
+    }catch(e){
+      S.apiReady=false;S.apiError=e.message;
+      toast(e.message,'err');
+      btn.innerHTML='<i class="ti ti-check"></i> Probar y guardar';
+    }finally{btn.disabled=false;renderApiStatus()}
+  });
+
+  document.getElementById('clearKey').addEventListener('click',()=>{
+    if(!confirm('¿Borrar la API key guardada?'))return;
+    S.apiKey=null;S.apiReady=false;S.apiError=null;
+    lsSave('apiKey',null);ak.value='';
+    toast('API key borrada');renderApiStatus();
+  });
+
+  setupForm();
+
+  document.getElementById('addBtn').addEventListener('click',()=>{
+    const name=document.getElementById('pName').value.trim();
+    const time=document.getElementById('pTime').value;
+    const address=document.getElementById('pAddr').value.trim();
+    const dropoff=document.getElementById('pDrop').value.trim();
+    const phone=document.getElementById('pPhone').value.trim();
+    const wheelchair=document.getElementById('pWheel').checked;
+    const notes=document.getElementById('pNotes').value.trim();
+    const duration=parseInt(document.getElementById('pDuration').value,10)||45;
+    const rsv=document.getElementById('returnPreset').value;
+    const riv=document.getElementById('pReturn').value.trim();
+    let returnAddress=null;
+    if(rsv==='home')returnAddress=address;
+    else if(rsv==='custom')returnAddress=riv;
+    if(!name||!time||!address||!dropoff){toast('Faltan campos: nombre, hora, pickup, dropoff','err');return}
+    if(rsv==='custom'&&!riv){toast('Especifique dirección de regreso','err');return}
+    S.patients.push({id:uid(),name,time,duration,address,dropoff,returnAddress,phone,wheelchair,notes});
+    S.trips=[];savePts();clearForm();document.getElementById('pName').focus();renderAll();
+  });
+
+  document.getElementById('clearFormBtn').addEventListener('click',clearForm);
+
+  document.getElementById('planBtn').addEventListener('click',async()=>{
+    if(S.isPlanning)return;
+    S.isPlanning=true;renderAll();
+    try{
+      S.trips=await planRoutes();
+      const anyReal=S.trips.some(t=>t.realDist);
+      if(S.apiReady&&anyReal)toast(S.trips.length+' rutas optimizadas con Google Maps','ok');
+      else if(S.apiReady)toast('Rutas generadas (algunas sin optimización)','ok');
+      else toast('Rutas generadas con tiempos estimados. Agrega API key para optimización real.','');
+    }catch(e){
+      console.error(e);toast('Error: '+e.message,'err');
+    }finally{
+      S.isPlanning=false;renderAll();
+      setTimeout(()=>document.getElementById('routes').scrollIntoView({behavior:'smooth',block:'start'}),100);
+    }
+  });
+
+  document.getElementById('clearAll').addEventListener('click',()=>{
+    if(!S.patients.length)return;
+    if(!confirm('¿Borrar todos los pacientes del '+S.date+'?'))return;
+    S.patients=[];S.trips=[];savePts();renderAll();
+  });
+
+  document.getElementById('demoBtn').addEventListener('click',loadDemo);
+
+  if(S.apiKey){
+    loadGM(S.apiKey).then(()=>{S.apiReady=true;renderApiStatus()}).catch(e=>{S.apiError=e.message;renderApiStatus()});
+  }
+
+  renderAll();
+}
+
+document.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>
