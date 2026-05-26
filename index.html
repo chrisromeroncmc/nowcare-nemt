@@ -182,10 +182,10 @@ header{flex-direction:column;align-items:stretch}
 
 <div class="sec">
 <div class="sec-h">
-<h2 class="sec-t">Agregar paciente</h2>
+<h2 class="sec-t" id="formTitle">Agregar paciente</h2>
 <button class="btn btn-g" id="demoBtn"><i class="ti ti-sparkles"></i> Cargar ejemplo</button>
 </div>
-<div class="card">
+<div class="card" id="formCard">
 <div class="form">
 <div class="f-row f-2"><label for="pName">Nombre completo *</label><input type="text" id="pName" placeholder="María Pérez"></div>
 <div class="f-row"><label for="pPhone">Teléfono</label><input type="tel" id="pPhone" placeholder="(305) 555-0123"></div>
@@ -201,8 +201,9 @@ header{flex-direction:column;align-items:stretch}
 </div>
 <div class="f-row f-full"><label for="pNotes">Notas especiales</label><input type="text" id="pNotes" placeholder="Apto 205, llamar al llegar, oxígeno portátil..."></div>
 <div class="f-actions f-full">
-<button class="btn btn-p" id="addBtn"><i class="ti ti-plus"></i> Agregar paciente</button>
+<button class="btn btn-p" id="addBtn"><i class="ti ti-plus"></i> <span id="addBtnText">Agregar paciente</span></button>
 <button class="btn btn-s" id="clearFormBtn">Limpiar</button>
+<button class="btn btn-s btn-d" id="cancelEditBtn" style="display:none"><i class="ti ti-x"></i> Cancelar edición</button>
 </div>
 </div>
 </div>
@@ -227,7 +228,7 @@ header{flex-direction:column;align-items:stretch}
 const NOWCARE_ADDR='14601 SW 104th St, Miami, FL 33186';
 const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12;
 
-const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null};
+const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null,editingId:null};
 
 function todayISO(){const d=new Date(),tz=d.getTimezoneOffset();return new Date(d.getTime()-tz*60000).toISOString().split('T')[0]}
 function t2m(t){if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m}
@@ -573,13 +574,18 @@ function renderPList(){
         (p.notes?'<p class="s-note">'+esc(p.notes)+'</p>':'')+
       '</div>'+
       '<div class="p-time">'+fmt12(p.time)+'<small>fin '+fmt12(endStr)+'</small></div>'+
+      '<button class="ico-b" data-edit="'+p.id+'" aria-label="Editar"><i class="ti ti-pencil"></i></button>'+
       '<button class="ico-b" data-del="'+p.id+'" aria-label="Eliminar"><i class="ti ti-x"></i></button>'+
     '</div>';
   }).join('')+'</div>';
   wrap.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{
     const id=b.getAttribute('data-del');
     S.patients=S.patients.filter(p=>p.id!==id);
+    if(S.editingId===id)exitEditMode();
     S.trips=[];savePts();renderAll();
+  }));
+  wrap.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click',()=>{
+    startEdit(b.getAttribute('data-edit'));
   }));
 }
 
@@ -706,6 +712,42 @@ function clearForm(){
   document.getElementById('pReturn').disabled=true;
 }
 
+function exitEditMode(){
+  S.editingId=null;
+  document.getElementById('formTitle').textContent='Agregar paciente';
+  document.getElementById('addBtnText').textContent='Agregar paciente';
+  document.getElementById('cancelEditBtn').style.display='none';
+  document.getElementById('formCard').style.borderColor='var(--bdr)';
+  clearForm();
+}
+
+function startEdit(id){
+  const p=S.patients.find(x=>x.id===id);
+  if(!p)return;
+  S.editingId=id;
+  document.getElementById('pName').value=p.name||'';
+  document.getElementById('pPhone').value=p.phone||'';
+  document.getElementById('pAddr').value=p.address||'';
+  document.getElementById('pTime').value=p.time||'';
+  document.getElementById('pDuration').value=p.duration||45;
+  document.getElementById('pWheel').checked=!!p.wheelchair;
+  document.getElementById('pNotes').value=p.notes||'';
+  // dropoff
+  const dropSel=document.getElementById('dropPreset'),dropInp=document.getElementById('pDrop');
+  if(isNC(p.dropoff)){dropSel.value='nowcare';dropInp.value=NOWCARE_ADDR;dropInp.disabled=true;}
+  else{dropSel.value='custom';dropInp.value=p.dropoff;dropInp.disabled=false;}
+  // return
+  const retSel=document.getElementById('returnPreset'),retInp=document.getElementById('pReturn');
+  if(!p.returnAddress){retSel.value='none';retInp.value='';retInp.disabled=true;}
+  else if(norm(p.returnAddress)===norm(p.address)){retSel.value='home';retInp.value=p.address;retInp.disabled=true;}
+  else{retSel.value='custom';retInp.value=p.returnAddress;retInp.disabled=false;}
+  document.getElementById('formTitle').textContent='Editar paciente';
+  document.getElementById('addBtnText').textContent='Guardar cambios';
+  document.getElementById('cancelEditBtn').style.display='inline-flex';
+  document.getElementById('formCard').style.borderColor='var(--teal)';
+  document.getElementById('formCard').scrollIntoView({behavior:'smooth',block:'center'});
+}
+
 function loadDemo(){
   const demo=[
     {name:'María González',time:'08:30',duration:45,address:'8500 SW 8th St, Miami, FL 33144',dropoff:NOWCARE_ADDR,returnAddress:'8500 SW 8th St, Miami, FL 33144',phone:'(305) 555-0142',wheelchair:false,notes:'Esperarla en el lobby'},
@@ -790,11 +832,25 @@ function init(){
     else if(rsv==='custom')returnAddress=riv;
     if(!name||!time||!address||!dropoff){toast('Faltan campos: nombre, hora, pickup, dropoff','err');return}
     if(rsv==='custom'&&!riv){toast('Especifique dirección de regreso','err');return}
-    S.patients.push({id:uid(),name,time,duration,address,dropoff,returnAddress,phone,wheelchair,notes});
-    S.trips=[];savePts();clearForm();document.getElementById('pName').focus();renderAll();
+    if(S.editingId){
+      const p=S.patients.find(x=>x.id===S.editingId);
+      if(p){Object.assign(p,{name,time,duration,address,dropoff,returnAddress,phone,wheelchair,notes});}
+      S.trips=[];savePts();
+      const eid=S.editingId;
+      exitEditMode();
+      renderAll();
+      toast('Cambios guardados. Vuelve a planificar rutas.','ok');
+    }else{
+      S.patients.push({id:uid(),name,time,duration,address,dropoff,returnAddress,phone,wheelchair,notes});
+      S.trips=[];savePts();clearForm();document.getElementById('pName').focus();renderAll();
+    }
   });
 
-  document.getElementById('clearFormBtn').addEventListener('click',clearForm);
+  document.getElementById('clearFormBtn').addEventListener('click',()=>{
+    if(S.editingId)exitEditMode();
+    else clearForm();
+  });
+  document.getElementById('cancelEditBtn').addEventListener('click',exitEditMode);
 
   document.getElementById('planBtn').addEventListener('click',async()=>{
     if(S.isPlanning)return;
