@@ -226,7 +226,7 @@ header{flex-direction:column;align-items:stretch}
 
 <script>
 const NOWCARE_ADDR='14601 SW 104th St, Miami, FL 33186';
-const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12;
+const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30;
 
 const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null,editingId:null};
 
@@ -234,6 +234,7 @@ function todayISO(){const d=new Date(),tz=d.getTimezoneOffset();return new Date(
 function t2m(t){if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m}
 function m2t(m){m=Math.max(0,Math.round(m));const h=Math.floor(m/60)%24,mm=m%60;return String(h).padStart(2,'0')+':'+String(mm).padStart(2,'0')}
 function fmt12(t){if(!t)return'—';const[h,m]=t.split(':').map(Number),p=h>=12?'p.m.':'a.m.',h12=h%12||12;return h12+':'+String(m).padStart(2,'0')+' '+p}
+function fmtWin(t){if(!t)return'—';const m=t2m(t),half=Math.floor(PICKUP_WINDOW_MIN/2);const sM=Math.max(0,m-half),eM=m+half;const sH=Math.floor(sM/60)%24,sMM=sM%60,eH=Math.floor(eM/60)%24,eMM=eM%60;const sP=sH>=12?'p.m.':'a.m.',eP=eH>=12?'p.m.':'a.m.';const s12=sH%12||12,e12=eH%12||12;const sStr=s12+':'+String(sMM).padStart(2,'0'),eStr=e12+':'+String(eMM).padStart(2,'0');return sP===eP?sStr+'–'+eStr+' '+sP:sStr+' '+sP+'–'+eStr+' '+eP}
 function uid(){return Math.random().toString(36).slice(2,10)}
 function esc(s){if(!s)return'';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function norm(s){return(s||'').toLowerCase().replace(/[^\w]/g,'')}
@@ -296,21 +297,52 @@ async function geocode(addr){
   });
 }
 
-async function distMatrix(origs,dests){
+async function distMatrix(origs,dests,depTime){
   if(!S.apiReady)throw new Error('API no inicializada');
-  return new Promise((resolve,reject)=>{
-    const svc=new google.maps.DistanceMatrixService();
-    svc.getDistanceMatrix({
-      origins:origs.map(o=>new google.maps.LatLng(o.lat,o.lng)),
-      destinations:dests.map(d=>new google.maps.LatLng(d.lat,d.lng)),
-      travelMode:google.maps.TravelMode.DRIVING,
-      unitSystem:google.maps.UnitSystem.IMPERIAL
-    },(resp,st)=>{
-      if(st!=='OK'){reject(new Error('Distance Matrix: '+st));return}
-      const m=resp.rows.map(r=>r.elements.map(e=>e.status==='OK'?{dur:Math.round(e.duration.value/60),dist:e.distance.value/1609.34}:null));
-      resolve(m);
+  const canUseTraffic=depTime instanceof Date&&depTime>new Date()&&google.maps.TrafficModel;
+  function call(useTraffic){
+    return new Promise((resolve,reject)=>{
+      const svc=new google.maps.DistanceMatrixService();
+      const req={
+        origins:origs.map(o=>new google.maps.LatLng(o.lat,o.lng)),
+        destinations:dests.map(d=>new google.maps.LatLng(d.lat,d.lng)),
+        travelMode:google.maps.TravelMode.DRIVING,
+        unitSystem:google.maps.UnitSystem.IMPERIAL
+      };
+      if(useTraffic){
+        try{req.drivingOptions={departureTime:depTime,trafficModel:google.maps.TrafficModel.BEST_GUESS}}
+        catch(e){console.warn('drivingOptions setup failed:',e)}
+      }
+      svc.getDistanceMatrix(req,(resp,st)=>{
+        if(st!=='OK'){reject(new Error('Distance Matrix: '+st));return}
+        const m=resp.rows.map(r=>r.elements.map(e=>e.status==='OK'?{dur:Math.round((e.duration_in_traffic||e.duration).value/60),dist:e.distance.value/1609.34}:null));
+        resolve(m);
+      });
     });
-  });
+  }
+  if(canUseTraffic){
+    try{return await call(true)}
+    catch(e){
+      console.warn('Tráfico predictivo falló, reintentando sin tráfico:',e.message);
+      if(!S._trafficWarned){S._trafficWarned=true;toast('Tráfico predictivo no disponible. Usando cálculo estándar.','')}
+    }
+  }
+  return call(false);
+}
+
+function getDepartureDate(dateISO,anchorMin){
+  if(!dateISO)return null;
+  const[y,m,d]=dateISO.split('-').map(Number);
+  const h=Math.floor(anchorMin/60),mm=anchorMin%60;
+  const dt=new Date(y,m-1,d,h,mm);
+  return dt>new Date()?dt:null;
+}
+
+function dayLabel(dateISO){
+  if(!dateISO)return '';
+  const[y,m,d]=dateISO.split('-').map(Number);
+  const dt=new Date(y,m-1,d);
+  return ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'][dt.getDay()];
 }
 
 function bestPerm(mtx,start,end,idxs){
@@ -325,12 +357,12 @@ function bestPerm(mtx,start,end,idxs){
   return{order:best,total:bc};
 }
 
-async function optOutbound(pts,depot){
+async function optOutbound(pts,depot,depTime){
   if(!S.apiReady||pts.length<=1)return{order:pts.map((_,i)=>i),legs:null};
   const pc=await Promise.all(pts.map(p=>geocode(p.address)));
   const dc=await geocode(pts[0].dropoff);
   const all=[depot,...pc,dc];
-  const mtx=await distMatrix(all,all);
+  const mtx=await distMatrix(all,all,depTime);
   const dur=mtx.map(r=>r.map(e=>e?e.dur:FALLBACK_MIN));
   const idxs=pc.map((_,i)=>i+1);
   const dropIdx=all.length-1;
@@ -342,13 +374,13 @@ async function optOutbound(pts,depot){
   return{order:opi,legs};
 }
 
-async function optReturn(pts,origin){
+async function optReturn(pts,origin,depTime){
   if(!S.apiReady||pts.length<=1)return{order:pts.map((_,i)=>i),legs:null};
   const oc=await geocode(origin);
   const hc=await Promise.all(pts.map(p=>geocode(p.returnAddress)));
   const nc=await geocode(NOWCARE_ADDR);
   const all=[oc,...hc,nc];
-  const mtx=await distMatrix(all,all);
+  const mtx=await distMatrix(all,all,depTime);
   const dur=mtx.map(r=>r.map(e=>e?e.dur:FALLBACK_MIN));
   const idxs=hc.map((_,i)=>i+1);
   const depotIdx=all.length-1;
@@ -416,8 +448,11 @@ async function planRoutes(){
     let opt={order:g.map((_,i)=>i),legs:null};
     let real=false;
     const tripDepot=idx===0?firstDepot:depot;
+    const earliestApptM=Math.min(...g.map(p=>t2m(p.time)));
+    const anchorM=Math.max(0,earliestApptM-90);
+    const depTime=getDepartureDate(S.date,anchorM);
     if(S.apiReady&&tripDepot){
-      try{opt=await optOutbound(g,tripDepot);real=true}
+      try{opt=await optOutbound(g,tripDepot,depTime);real=true}
       catch(e){console.error('Opt trip '+(idx+1)+':',e);toast('Error optimizando: '+e.message,'err')}
     }
     const ordered=opt.order.map(i=>g[i]);
@@ -461,8 +496,11 @@ async function planRoutes(){
     const g=retG[idx];
     let opt={order:g.map((_,i)=>i),legs:null};
     let real=false;
+    const lateReadyM=Math.max(...g.map(p=>p.endTime));
+    const retAnchorM=lateReadyM+RETURN_WAIT;
+    const retDepTime=getDepartureDate(S.date,retAnchorM);
     if(S.apiReady){
-      try{opt=await optReturn(g,g[0].dropoff);real=true}
+      try{opt=await optReturn(g,g[0].dropoff,retDepTime);real=true}
       catch(e){console.error('Ret opt:',e)}
     }
     const ordered=opt.order.map(i=>g[i]);
@@ -502,12 +540,13 @@ async function planRoutes(){
 
   if(S.driverHome&&S.apiReady&&driverDepot&&trips.length){
     const last=trips[trips.length-1];
-    let lastAddr;
-    if(last.kind==='outbound')lastAddr=last.dropoff.address;
-    else lastAddr=last.dropoffStops[last.dropoffStops.length-1].address;
+    let lastAddr,lastTimeM;
+    if(last.kind==='outbound'){lastAddr=last.dropoff.address;lastTimeM=t2m(last.arrTime)}
+    else{lastAddr=last.dropoffStops[last.dropoffStops.length-1].address;lastTimeM=t2m(last.dropoffStops[last.dropoffStops.length-1].time)}
     try{
       const lastCoord=await geocode(lastAddr);
-      const mtx=await distMatrix([lastCoord],[driverDepot]);
+      const homeDepTime=getDepartureDate(S.date,lastTimeM);
+      const mtx=await distMatrix([lastCoord],[driverDepot],homeDepTime);
       const homeLeg=mtx[0][0]?mtx[0][0].dur:FALLBACK_MIN;
       last.returnHome={address:S.driverHome,label:'Casa del conductor',leg:homeLeg};
     }catch(e){console.error('Return home leg:',e)}
@@ -593,8 +632,12 @@ function renderRoutes(){
   const wrap=document.getElementById('routes');
   if(!S.trips.length){wrap.innerHTML='';return}
   const anyReal=S.trips.some(t=>t.realDist);
+  const isFuture=getDepartureDate(S.date,12*60)!==null;
+  const dayName=dayLabel(S.date);
+  const trafficNote=anyReal&&isFuture?'Tráfico previsto para '+dayName:'Sin patrón de tráfico (fecha pasada)';
   wrap.innerHTML='<div class="sec-h" style="margin-top:1.5rem"><h2 class="sec-t">Plan del día ('+S.trips.length+' viaje'+(S.trips.length>1?'s':'')+')</h2>'+
     '<span class="mode-i '+(anyReal?'real':'est')+'"><i class="ti '+(anyReal?'ti-map-pin':'ti-clock')+'"></i> '+(anyReal?'Tiempos reales':'Estimación fija')+'</span></div>'+
+    '<div class="warn info" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue-b);margin-bottom:14px"><i class="ti ti-info-circle"></i> <span>Pickups y dropoffs en casa se muestran como ventana de '+PICKUP_WINDOW_MIN+' min para dar holgura al conductor. '+(anyReal?trafficNote+'.':'')+'</span></div>'+
     S.trips.map(t=>t.kind==='outbound'?renderOut(t):renderRet(t)).join('');
 }
 
@@ -623,7 +666,7 @@ function renderOut(t){
           '<p class="s-addr">'+esc(s.patient.address)+'</p>'+
           (s.patient.notes?'<p class="s-note">'+esc(s.patient.notes)+'</p>':'')+
         '</div>'+
-        '<div class="s-time">Pickup <strong>'+fmt12(s.time)+'</strong>cita '+fmt12(s.patient.time)+(t.realDist?'<span class="leg">+'+s.leg+' min</span>':'')+'</div>'+
+        '<div class="s-time">Pickup <strong>'+fmtWin(s.time)+'</strong><span class="leg">óptimo '+fmt12(s.time)+'</span>cita '+fmt12(s.patient.time)+(t.realDist?'<span class="leg">+'+s.leg+' min</span>':'')+'</div>'+
       '</div>'
     ).join('')+
     '<p class="trip-stg">Dropoff</p>'+
@@ -666,7 +709,7 @@ function renderRet(t){
           (s.patient.phone?' <a class="tel" href="tel:'+esc(s.patient.phone)+'"><i class="ti ti-phone"></i> '+esc(s.patient.phone)+'</a>':'')+'</p>'+
           '<p class="s-addr">'+esc(s.address)+'</p>'+
         '</div>'+
-        '<div class="s-time">Dropoff <strong>'+fmt12(s.time)+'</strong>'+(t.realDist?'<span class="leg">+'+s.leg+' min</span>':'')+'</div>'+
+        '<div class="s-time">Dropoff <strong>'+fmtWin(s.time)+'</strong><span class="leg">óptimo '+fmt12(s.time)+'</span>'+(t.realDist?'<span class="leg">+'+s.leg+' min</span>':'')+'</div>'+
       '</div>'
     ).join('')+
     (t.returnHome?'<p class="trip-stg">Fin del día — regreso del conductor</p>'+
