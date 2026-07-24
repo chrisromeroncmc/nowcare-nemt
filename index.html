@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#FAFAF7;--surf:#FFF;--surf2:#F4F3EE;--bdr:#E5E2D9;--bdr2:#D3D0C5;--t:#1A1A1A;--t2:#6B6B66;--t3:#94928A;--teal:#0F6E56;--teal-d:#085041;--teal-l:#E1F5EE;--teal-b:#B8E4D3;--amber:#854F0B;--amber-l:#FAEEDA;--amber-b:#F0D9A8;--red:#A32D2D;--red-l:#FCEBEB;--red-b:#F5C5C5;--green:#3B6D11;--green-l:#EAF3DE;--blue:#185FA5;--blue-l:#E6F1FB;--blue-b:#B5D4F4}
 *{box-sizing:border-box}
@@ -127,6 +128,22 @@ input:disabled{background:var(--surf2);color:var(--t3);cursor:not-allowed}
 .mode-i{font-size:11px;padding:4px 10px;border-radius:999px;font-weight:500;font-family:'IBM Plex Mono',monospace;display:inline-flex;align-items:center;gap:4px}
 .mode-i.real{background:var(--teal-l);color:var(--teal-d)}
 .mode-i.est{background:var(--amber-l);color:var(--amber)}
+.modal-bd{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:1000;padding:1rem}
+.modal-pn{background:var(--surf);border-radius:14px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 4px 20px rgba(0,0,0,0.15)}
+.modal-h{display:flex;justify-content:space-between;align-items:center;padding:1rem 1.5rem;border-bottom:1px solid var(--bdr)}
+.modal-h h3{margin:0;font-size:16px;font-weight:600}
+.modal-bdy{padding:1.25rem 1.5rem;overflow-y:auto;flex:1}
+.modal-ft{display:flex;justify-content:flex-end;gap:8px;padding:1rem 1.5rem;border-top:1px solid var(--bdr)}
+.file-drop{border:2px dashed var(--bdr2);border-radius:12px;padding:2rem;text-align:center;color:var(--t2)}
+.file-drop i{font-size:36px;color:var(--t3);display:block;margin-bottom:8px}
+.file-drop.drag{border-color:var(--teal);background:var(--teal-l)}
+.mapping-grid{display:grid;grid-template-columns:1fr 2fr;gap:10px;align-items:center;margin-bottom:1rem}
+.mapping-grid label{margin:0;text-transform:none;font-size:13px;color:var(--t);letter-spacing:0}
+.mapping-grid select{padding:6px 10px;font-size:13px}
+.preview-tbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:1rem}
+.preview-tbl th,.preview-tbl td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--bdr)}
+.preview-tbl th{font-weight:500;color:var(--t2);text-transform:uppercase;letter-spacing:0.3px;font-size:10px}
+.p-reason{font-size:11px;color:var(--green);margin:3px 0 0;display:flex;align-items:center;gap:4px}
 @media(max-width:720px){
 .wrap{padding:1rem;padding-bottom:4rem}
 header{flex-direction:column;align-items:stretch}
@@ -183,7 +200,10 @@ header{flex-direction:column;align-items:stretch}
 <div class="sec">
 <div class="sec-h">
 <h2 class="sec-t" id="formTitle">Agregar paciente</h2>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button class="btn btn-s" id="importBtn"><i class="ti ti-file-spreadsheet"></i> Importar Excel</button>
 <button class="btn btn-g" id="demoBtn"><i class="ti ti-sparkles"></i> Cargar ejemplo</button>
+</div>
 </div>
 <div class="card" id="formCard">
 <div class="form">
@@ -220,6 +240,34 @@ header{flex-direction:column;align-items:stretch}
 </div>
 
 <div id="routes"></div>
+</div>
+
+<div class="modal-bd" id="importModal" style="display:none">
+<div class="modal-pn">
+<div class="modal-h">
+<h3 id="importTitle">Importar pacientes desde Excel</h3>
+<button class="ico-b" id="closeImport" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+</div>
+<div class="modal-bdy">
+<div id="importStep1">
+<div class="file-drop" id="fileDrop">
+<i class="ti ti-file-spreadsheet"></i>
+<p>Arrastra archivo .xlsx aquí o</p>
+<label class="btn btn-s" style="cursor:pointer"><input type="file" accept=".xlsx,.xls" id="excelInput" style="display:none"> <i class="ti ti-upload"></i> Seleccionar archivo</label>
+</div>
+<p class="hint" style="margin-top:1rem">La app detecta automáticamente la fila de encabezados (saltando filas vacías). La fecha actual seleccionada es <strong id="importDateLabel"></strong> — solo se importarán filas de esa fecha si hay columna de fecha. Direcciones que digan "NowCare", "Now care", etc. se reemplazan automáticamente por la dirección completa de la clínica.</p>
+</div>
+<div id="importStep2" style="display:none">
+<p class="hint">Selecciona qué columna del Excel corresponde a cada campo. Los marcados con * son obligatorios.</p>
+<div class="mapping-grid" id="mappingGrid"></div>
+<div id="previewArea"></div>
+</div>
+</div>
+<div class="modal-ft">
+<button class="btn btn-s" id="cancelImport">Cancelar</button>
+<button class="btn btn-p" id="confirmImport" style="display:none"><i class="ti ti-check"></i> Importar pacientes</button>
+</div>
+</div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -610,6 +658,7 @@ function renderPList(){
         '</p>'+
         '<p class="p-meta"><i class="ti ti-home" style="font-size:11px"></i> '+esc(p.address)+(p.phone?' · '+esc(p.phone):'')+'</p>'+
         '<p class="p-route"><i class="ti ti-arrow-right"></i> '+esc(shortLbl(p.dropoff))+(p.returnAddress?' <i class="ti ti-arrow-back-up"></i> '+esc(retLbl):'')+'</p>'+
+        (p.reason?'<p class="p-reason"><i class="ti ti-stethoscope"></i> '+esc(p.reason)+'</p>':'')+
         (p.notes?'<p class="s-note">'+esc(p.notes)+'</p>':'')+
       '</div>'+
       '<div class="p-time">'+fmt12(p.time)+'<small>fin '+fmt12(endStr)+'</small></div>'+
@@ -804,7 +853,203 @@ function loadDemo(){
   S.trips=[];savePts();renderAll();
 }
 
-function init(){
+const IMPORT_FIELDS=[
+  {key:'name',label:'Nombre completo',required:true,hints:['name','nombre','patient','paciente','member name']},
+  {key:'pickup',label:'Pickup (casa)',required:true,hints:['pickup','pick up','pick-up','recogida','home','casa','origin','origen','from address','pu address']},
+  {key:'dropoff',label:'Dropoff (destino)',required:true,hints:['dropoff','drop off','drop-off','destino','destination','clinic','clinica','do address','to address']},
+  {key:'time',label:'Hora de cita',required:true,hints:['time','hora','appt time','cita','appointment','pickup time']},
+  {key:'date',label:'Fecha del transporte',required:false,hints:['date','fecha','service date','trip date','transport date']},
+  {key:'phone',label:'Teléfono',required:false,hints:['phone','telefono','teléfono','tel','contact','contacto']},
+  {key:'reason',label:'Razón / motivo',required:false,hints:['reason','razon','razón','motivo','purpose','diagnosis']},
+  {key:'memberNumber',label:'# de miembro',required:false,hints:['member','miembro','member id','member#','subscriber','hicn','id #']},
+  {key:'duration',label:'Duración (min)',required:false,hints:['duration','duracion','duración','minutes','minutos','mins']},
+  {key:'wheelchair',label:'Silla de ruedas',required:false,hints:['wheelchair','silla','silla de ruedas','accessible','mobility','movilidad']},
+  {key:'notes',label:'Notas especiales',required:false,hints:['notes','notas','comments','comentarios','special','observation']}
+];
+
+let importState={headers:[],rows:[],mapping:{}};
+
+function openImportModal(){
+  document.getElementById('importModal').style.display='flex';
+  document.getElementById('importStep1').style.display='block';
+  document.getElementById('importStep2').style.display='none';
+  document.getElementById('confirmImport').style.display='none';
+  document.getElementById('importDateLabel').textContent=S.date;
+  document.getElementById('excelInput').value='';
+  importState={headers:[],rows:[],mapping:{}};
+}
+
+function closeImportModal(){
+  document.getElementById('importModal').style.display='none';
+}
+
+function handleExcelFile(file){
+  if(!file)return;
+  if(!/\.xlsx?$/i.test(file.name)){toast('Solo archivos .xlsx','err');return}
+  if(typeof XLSX==='undefined'){toast('Librería Excel no cargó. Refresca la página.','err');return}
+  const reader=new FileReader();
+  reader.onload=(e)=>{
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:'array',cellDates:true});
+      const sheet=wb.Sheets[wb.SheetNames[0]];
+      const json=XLSX.utils.sheet_to_json(sheet,{header:1,raw:false,dateNF:'yyyy-mm-dd'});
+      if(!json.length){toast('Archivo vacío','err');return}
+      let headerRowIdx=-1;
+      for(let i=0;i<Math.min(json.length,15);i++){
+        const nonEmpty=json[i].filter(c=>c!=null&&String(c).trim()).length;
+        if(nonEmpty>=3){headerRowIdx=i;break}
+      }
+      if(headerRowIdx<0){toast('No se encontraron encabezados (mínimo 3 columnas)','err');return}
+      importState.headers=json[headerRowIdx].map(h=>String(h||'').trim());
+      importState.rows=json.slice(headerRowIdx+1).filter(r=>r.some(c=>c!=null&&String(c).trim()));
+      if(!importState.rows.length){toast('No hay filas de datos debajo de los encabezados','err');return}
+      autoMapColumns();
+      showMappingStep();
+    }catch(err){console.error(err);toast('Error leyendo Excel: '+err.message,'err')}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function autoMapColumns(){
+  importState.mapping={};
+  IMPORT_FIELDS.forEach(field=>{
+    for(let i=0;i<importState.headers.length;i++){
+      const h=importState.headers[i].toLowerCase();
+      if(field.hints.some(hint=>h.includes(hint))){importState.mapping[field.key]=i;break}
+    }
+  });
+  const saved=lsLoad('importMapping',null);
+  if(saved){
+    Object.keys(saved).forEach(key=>{
+      const headerName=saved[key];
+      if(headerName){
+        const idx=importState.headers.findIndex(h=>h===headerName);
+        if(idx>=0)importState.mapping[key]=idx;
+      }
+    });
+  }
+}
+
+function showMappingStep(){
+  document.getElementById('importStep1').style.display='none';
+  document.getElementById('importStep2').style.display='block';
+  document.getElementById('confirmImport').style.display='inline-flex';
+  const grid=document.getElementById('mappingGrid');
+  grid.innerHTML=IMPORT_FIELDS.map(f=>
+    '<label>'+f.label+(f.required?' *':'')+'</label>'+
+    '<select data-field="'+f.key+'">'+
+      '<option value="">— Ninguna —</option>'+
+      importState.headers.map((h,i)=>
+        '<option value="'+i+'"'+(importState.mapping[f.key]===i?' selected':'')+'>'+esc(h||'(columna '+(i+1)+')')+'</option>'
+      ).join('')+
+    '</select>'
+  ).join('');
+  grid.querySelectorAll('select').forEach(sel=>{
+    sel.addEventListener('change',()=>{
+      const key=sel.getAttribute('data-field');
+      importState.mapping[key]=sel.value===''?null:parseInt(sel.value,10);
+      renderPreview();
+    });
+  });
+  renderPreview();
+}
+
+function renderPreview(){
+  const preview=document.getElementById('previewArea');
+  const visibleFields=IMPORT_FIELDS.filter(f=>importState.mapping[f.key]!=null);
+  if(!visibleFields.length){preview.innerHTML='';return}
+  const sample=importState.rows.slice(0,3);
+  preview.innerHTML='<h4 style="font-size:13px;font-weight:500;margin:1rem 0 8px;color:var(--t2)">Vista previa (primeras 3 filas)</h4>'+
+    '<div style="overflow-x:auto"><table class="preview-tbl"><thead><tr>'+
+    visibleFields.map(f=>'<th>'+esc(f.label)+'</th>').join('')+
+    '</tr></thead><tbody>'+
+    sample.map(row=>'<tr>'+visibleFields.map(f=>'<td>'+esc(String(row[importState.mapping[f.key]]||'').substring(0,60))+'</td>').join('')+'</tr>').join('')+
+    '</tbody></table></div>';
+}
+
+function parseTimeStr(val){
+  if(val==null||val==='')return null;
+  if(typeof val==='number'&&val>=0&&val<1){
+    const totalMin=Math.round(val*1440);
+    const h=Math.floor(totalMin/60)%24,m=totalMin%60;
+    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+  }
+  if(val instanceof Date){
+    let h=val.getHours(),m=val.getMinutes();
+    if(h===0&&m===0&&val.getFullYear()<1970){h=val.getUTCHours();m=val.getUTCMinutes()}
+    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+  }
+  const s=String(val).trim();
+  let m=s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm|a\.?m\.?|p\.?m\.?)?/i);
+  if(m){
+    let h=parseInt(m[1],10),min=parseInt(m[2],10);
+    if(m[4]){const pm=/p/i.test(m[4]);if(pm&&h<12)h+=12;if(!pm&&h===12)h=0}
+    return String(h).padStart(2,'0')+':'+String(min).padStart(2,'0');
+  }
+  return null;
+}
+
+function parseDateStr(val){
+  if(!val)return null;
+  if(val instanceof Date){const tz=val.getTimezoneOffset();return new Date(val.getTime()-tz*60000).toISOString().split('T')[0]}
+  const s=String(val).trim();
+  if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.substring(0,10);
+  let m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m)return m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+  m=s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
+  if(m)return m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+  return null;
+}
+
+function doImport(){
+  const missing=IMPORT_FIELDS.filter(f=>f.required&&importState.mapping[f.key]==null);
+  if(missing.length){toast('Faltan columnas: '+missing.map(f=>f.label).join(', '),'err');return}
+  const mappingToSave={};
+  Object.keys(importState.mapping).forEach(key=>{
+    const idx=importState.mapping[key];
+    if(idx!=null)mappingToSave[key]=importState.headers[idx];
+  });
+  lsSave('importMapping',mappingToSave);
+  let added=0,skipped=0,dupes=0,wrongDate=0;
+  const existingKeys=new Set(S.patients.map(p=>(p.name||'').toLowerCase().trim()+'|'+p.time));
+  for(const row of importState.rows){
+    const get=(key)=>{const idx=importState.mapping[key];return idx!=null?row[idx]:null};
+    const name=String(get('name')||'').trim();
+    const pickup=String(get('pickup')||'').trim();
+    let dropoff=String(get('dropoff')||'').trim();
+    if(/^nowcare/.test(norm(dropoff)))dropoff=NOWCARE_ADDR;
+    const time=parseTimeStr(get('time'));
+    if(!name||!pickup||!dropoff||!time){skipped++;continue}
+    if(importState.mapping.date!=null){
+      const rowDate=parseDateStr(get('date'));
+      if(rowDate&&rowDate!==S.date){wrongDate++;continue}
+    }
+    const dupKey=name.toLowerCase()+'|'+time;
+    if(existingKeys.has(dupKey)){dupes++;continue}
+    existingKeys.add(dupKey);
+    const reason=String(get('reason')||'').trim();
+    const phone=String(get('phone')||'').trim();
+    const memberNumber=String(get('memberNumber')||'').trim();
+    const notes=String(get('notes')||'').trim();
+    let duration=45;
+    const durRaw=get('duration');
+    if(durRaw){const n=parseInt(String(durRaw).replace(/[^\d]/g,''),10);if(n>=15&&n<=240)duration=n}
+    const whRaw=String(get('wheelchair')||'').trim().toLowerCase();
+    const wheelchair=/^(yes|y|si|sí|true|1|x)$/i.test(whRaw);
+    S.patients.push({id:uid(),name,time,duration,address:pickup,dropoff,returnAddress:pickup,phone,wheelchair,notes,reason,memberNumber});
+    added++;
+  }
+  S.trips=[];savePts();closeImportModal();renderAll();
+  const parts=[];
+  if(added)parts.push(added+' agregado'+(added>1?'s':''));
+  if(dupes)parts.push(dupes+' duplicado'+(dupes>1?'s':''));
+  if(wrongDate)parts.push(wrongDate+' de otra fecha');
+  if(skipped)parts.push(skipped+' inválida'+(skipped>1?'s':''));
+  toast(parts.join(' · ')||'Sin cambios',added?'ok':'');
+}
+
+
   S.apiKey=lsLoad('apiKey',null);
   S.driverHome=lsLoad('driverHome',null);
   S.geocodeCache=lsLoad('geocodeCache',{});
@@ -919,6 +1164,17 @@ function init(){
   });
 
   document.getElementById('demoBtn').addEventListener('click',loadDemo);
+
+  document.getElementById('importBtn').addEventListener('click',openImportModal);
+  document.getElementById('closeImport').addEventListener('click',closeImportModal);
+  document.getElementById('cancelImport').addEventListener('click',closeImportModal);
+  document.getElementById('confirmImport').addEventListener('click',doImport);
+  document.getElementById('excelInput').addEventListener('change',(e)=>handleExcelFile(e.target.files[0]));
+  const drop=document.getElementById('fileDrop');
+  drop.addEventListener('dragover',(e)=>{e.preventDefault();drop.classList.add('drag')});
+  drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));
+  drop.addEventListener('drop',(e)=>{e.preventDefault();drop.classList.remove('drag');handleExcelFile(e.dataTransfer.files[0])});
+  document.getElementById('importModal').addEventListener('click',(e)=>{if(e.target.id==='importModal')closeImportModal()});
 
   if(S.apiKey){
     loadGM(S.apiKey).then(()=>{S.apiReady=true;renderApiStatus()}).catch(e=>{S.apiError=e.message;renderApiStatus()});
