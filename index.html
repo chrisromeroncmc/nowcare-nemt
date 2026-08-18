@@ -274,7 +274,7 @@ header{flex-direction:column;align-items:stretch}
 
 <script>
 const NOWCARE_ADDR='14601 SW 104th St, Miami, FL 33186';
-const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30;
+const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=6;
 
 const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null,editingId:null};
 
@@ -440,36 +440,58 @@ async function optReturn(pts,origin,depTime){
   return{order:opi,legs};
 }
 
-function groupOut(pts){
-  const sorted=[...pts].sort((a,b)=>a.time.localeCompare(b.time));
-  const g=[];
-  for(const p of sorted){
-    let placed=false;
-    for(const grp of g){
-      if(grp.length>=VAN_CAP)continue;
-      if(norm(grp[0].dropoff)!==norm(p.dropoff))continue;
-      if(t2m(p.time)-t2m(grp[0].time)>60)continue;
-      grp.push(p);placed=true;break;
-    }
-    if(!placed)g.push([p]);
+async function computeHomeDistances(pts,addrKey){
+  if(!S.apiReady||pts.length<2)return null;
+  try{
+    const coords=await Promise.all(pts.map(p=>geocode(p[addrKey])));
+    const mtx=await distMatrix(coords,coords);
+    return mtx.map(row=>row.map(e=>e?e.dist:Infinity));
+  }catch(e){
+    console.warn('Distance matrix for grouping failed:',e);
+    return null;
   }
-  return g;
 }
 
-function groupRet(pts){
-  const sorted=[...pts].sort((a,b)=>a.endTime-b.endTime);
-  const g=[];
-  for(const p of sorted){
+function groupOut(pts,distMap){
+  const withIdx=pts.map((p,i)=>({p,i}));
+  withIdx.sort((a,b)=>a.p.time.localeCompare(b.p.time));
+  const groups=[];
+  for(const item of withIdx){
     let placed=false;
-    for(const grp of g){
+    for(const grp of groups){
       if(grp.length>=VAN_CAP)continue;
-      if(norm(grp[0].dropoff)!==norm(p.dropoff))continue;
-      if(p.endTime-grp[0].endTime>45)continue;
-      grp.push(p);placed=true;break;
+      if(norm(grp[0].p.dropoff)!==norm(item.p.dropoff))continue;
+      if(t2m(item.p.time)-t2m(grp[0].p.time)>20)continue;
+      if(distMap){
+        const tooFar=grp.some(g=>(distMap[item.i]&&distMap[item.i][g.i]!=null?distMap[item.i][g.i]:Infinity)>PROXIMITY_MAX_MILES);
+        if(tooFar)continue;
+      }
+      grp.push(item);placed=true;break;
     }
-    if(!placed)g.push([p]);
+    if(!placed)groups.push([item]);
   }
-  return g;
+  return groups.map(grp=>grp.map(item=>item.p));
+}
+
+function groupRet(pts,distMap){
+  const withIdx=pts.map((p,i)=>({p,i}));
+  withIdx.sort((a,b)=>a.p.endTime-b.p.endTime);
+  const groups=[];
+  for(const item of withIdx){
+    let placed=false;
+    for(const grp of groups){
+      if(grp.length>=VAN_CAP)continue;
+      if(norm(grp[0].p.dropoff)!==norm(item.p.dropoff))continue;
+      if(item.p.endTime-grp[0].p.endTime>30)continue;
+      if(distMap){
+        const tooFar=grp.some(g=>(distMap[item.i]&&distMap[item.i][g.i]!=null?distMap[item.i][g.i]:Infinity)>PROXIMITY_MAX_MILES);
+        if(tooFar)continue;
+      }
+      grp.push(item);placed=true;break;
+    }
+    if(!placed)groups.push([item]);
+  }
+  return groups.map(grp=>grp.map(item=>item.p));
 }
 
 async function planRoutes(){
@@ -487,7 +509,8 @@ async function planRoutes(){
   }
   const firstDepot=driverDepot||depot;
 
-  const outG=groupOut(valid);
+  const outDistMap=await computeHomeDistances(valid,'address');
+  const outG=groupOut(valid,outDistMap);
   const trips=[];
   let vanReady=null;
 
@@ -538,7 +561,8 @@ async function planRoutes(){
   }
 
   const returnable=valid.filter(p=>p.returnAddress);
-  const retG=groupRet(returnable);
+  const retDistMap=await computeHomeDistances(returnable,'returnAddress');
+  const retG=groupRet(returnable,retDistMap);
 
   for(let idx=0;idx<retG.length;idx++){
     const g=retG[idx];
@@ -686,7 +710,7 @@ function renderRoutes(){
   const trafficNote=anyReal&&isFuture?'Tráfico previsto para '+dayName:'Sin patrón de tráfico (fecha pasada)';
   wrap.innerHTML='<div class="sec-h" style="margin-top:1.5rem"><h2 class="sec-t">Plan del día ('+S.trips.length+' viaje'+(S.trips.length>1?'s':'')+')</h2>'+
     '<span class="mode-i '+(anyReal?'real':'est')+'"><i class="ti '+(anyReal?'ti-map-pin':'ti-clock')+'"></i> '+(anyReal?'Tiempos reales':'Estimación fija')+'</span></div>'+
-    '<div class="warn info" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue-b);margin-bottom:14px"><i class="ti ti-info-circle"></i> <span>Pickups y dropoffs en casa se muestran como ventana de '+PICKUP_WINDOW_MIN+' min para dar holgura al conductor. '+(anyReal?trafficNote+'.':'')+'</span></div>'+
+    '<div class="warn info" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue-b);margin-bottom:14px"><i class="ti ti-info-circle"></i> <span>Pickups y dropoffs en casa se muestran como ventana de '+PICKUP_WINDOW_MIN+' min para dar holgura al conductor. '+(anyReal?trafficNote+'. Pacientes agrupados solo si viven dentro de '+PROXIMITY_MAX_MILES+' millas entre sí.':'')+'</span></div>'+
     S.trips.map(t=>t.kind==='outbound'?renderOut(t):renderRet(t)).join('');
 }
 
