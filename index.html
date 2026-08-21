@@ -274,7 +274,7 @@ header{flex-direction:column;align-items:stretch}
 
 <script>
 const NOWCARE_ADDR='14601 SW 104th St, Miami, FL 33186';
-const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=6;
+const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=6,MAX_LATE_MIN=5;
 
 const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null,editingId:null};
 
@@ -510,54 +510,90 @@ async function planRoutes(){
   const firstDepot=driverDepot||depot;
 
   const outDistMap=await computeHomeDistances(valid,'address');
-  const outG=groupOut(valid,outDistMap);
-  const trips=[];
+  let outG=groupOut(valid,outDistMap);
+  let trips=[];
   let vanReady=null;
+  let unavoidableLateness=[];
+  const MAX_REPLAN=15;
 
-  for(let idx=0;idx<outG.length;idx++){
-    const g=outG[idx];
-    let opt={order:g.map((_,i)=>i),legs:null};
-    let real=false;
-    const tripDepot=idx===0?firstDepot:depot;
-    const earliestApptM=Math.min(...g.map(p=>t2m(p.time)));
-    const anchorM=Math.max(0,earliestApptM-90);
-    const depTime=getDepartureDate(S.date,anchorM);
-    if(S.apiReady&&tripDepot){
-      try{opt=await optOutbound(g,tripDepot,depTime);real=true}
-      catch(e){console.error('Opt trip '+(idx+1)+':',e);toast('Error optimizando: '+e.message,'err')}
+  replanLoop: for(let replanIter=0;replanIter<MAX_REPLAN;replanIter++){
+    trips=[];
+    vanReady=null;
+    unavoidableLateness=[];
+
+    for(let idx=0;idx<outG.length;idx++){
+      const g=outG[idx];
+      let opt={order:g.map((_,i)=>i),legs:null};
+      let real=false;
+      const tripDepot=idx===0?firstDepot:depot;
+      const earliestApptM=Math.min(...g.map(p=>t2m(p.time)));
+      const anchorM=Math.max(0,earliestApptM-90);
+      const depTime=getDepartureDate(S.date,anchorM);
+      if(S.apiReady&&tripDepot){
+        try{opt=await optOutbound(g,tripDepot,depTime);real=true}
+        catch(e){console.error('Opt trip '+(idx+1)+':',e);toast('Error optimizando: '+e.message,'err')}
+      }
+      const ordered=opt.order.map(i=>g[i]);
+      const n=ordered.length;
+      const legs=opt.legs||new Array(n+1).fill(FALLBACK_MIN);
+      const earliestM=Math.min(...ordered.map(p=>t2m(p.time)));
+      const latestM=Math.max(...ordered.map(p=>t2m(p.time)));
+      const targetM=earliestM-BUFFER_MIN;
+      const totalTrav=legs.reduce((a,b)=>a+b,0);
+      const totalMin=totalTrav+n*STOP_TIME;
+      let departure=targetM-totalMin;
+      let warning=null;
+      if(vanReady!==null&&departure<vanReady){
+        departure=vanReady;
+        warning='Van regresa de viaje previo a las '+fmt12(m2t(vanReady))+'. Pickup ajustado.';
+      }
+      let cum=departure;
+      const ps=ordered.map((p,i)=>{
+        cum+=legs[i];
+        const at=cum;
+        cum+=STOP_TIME;
+        return{kind:'pickup',patient:p,time:m2t(at),leg:legs[i]};
+      });
+      const arrM=cum+legs[n];
+
+      // Detectar lateness: cualquier paciente que llegue más de MAX_LATE_MIN tarde
+      const lateForAny=ordered.some(p=>arrM>t2m(p.time)+MAX_LATE_MIN);
+
+      if(lateForAny&&g.length>1){
+        // Split: separar al paciente con cita MÁS TEMPRANA en su propio trip
+        const sortedByAppt=[...g].sort((a,b)=>t2m(a.time)-t2m(b.time));
+        const solo=[sortedByAppt[0]];
+        const rest=sortedByAppt.slice(1);
+        outG.splice(idx,1,solo,rest);
+        // Re-ordenar outG por earliest-en-grupo
+        outG.sort((a,b)=>Math.min(...a.map(p=>t2m(p.time)))-Math.min(...b.map(p=>t2m(p.time))));
+        continue replanLoop;
+      }
+
+      const tripEndM=arrM+n*STOP_TIME;
+      vanReady=tripEndM+5;
+      const lateBy=Math.max(0,arrM-earliestM);
+
+      // Si aún hay lateness con paciente solo, es inevitable
+      if(lateForAny&&g.length===1){
+        unavoidableLateness.push({patient:ordered[0],minutesLate:arrM-t2m(ordered[0].time)});
+      }
+
+      trips.push({
+        kind:'outbound',patients:ordered,pickupStops:ps,realDist:real,
+        origin:idx===0&&S.driverHome?{address:S.driverHome,label:'Casa del conductor'}:null,
+        dropoff:{address:ordered[0].dropoff,label:shortLbl(ordered[0].dropoff),time:m2t(arrM),leg:legs[n]},
+        depTime:m2t(departure),arrTime:m2t(arrM),totalMin:arrM-departure,
+        earliest:m2t(earliestM),latest:m2t(latestM),warning,lateBy
+      });
     }
-    const ordered=opt.order.map(i=>g[i]);
-    const n=ordered.length;
-    const legs=opt.legs||new Array(n+1).fill(FALLBACK_MIN);
-    const earliestM=Math.min(...ordered.map(p=>t2m(p.time)));
-    const latestM=Math.max(...ordered.map(p=>t2m(p.time)));
-    const targetM=earliestM-BUFFER_MIN;
-    const totalTrav=legs.reduce((a,b)=>a+b,0);
-    const totalMin=totalTrav+n*STOP_TIME;
-    let departure=targetM-totalMin;
-    let warning=null;
-    if(vanReady!==null&&departure<vanReady){
-      departure=vanReady;
-      warning='Van regresa de viaje previo a las '+fmt12(m2t(vanReady))+'. Pickup ajustado.';
-    }
-    let cum=departure;
-    const ps=ordered.map((p,i)=>{
-      cum+=legs[i];
-      const at=cum;
-      cum+=STOP_TIME;
-      return{kind:'pickup',patient:p,time:m2t(at),leg:legs[i]};
-    });
-    const arrM=cum+legs[n];
-    const tripEndM=arrM+n*STOP_TIME;
-    vanReady=tripEndM+5;
-    const lateBy=Math.max(0,arrM-earliestM);
-    trips.push({
-      kind:'outbound',patients:ordered,pickupStops:ps,realDist:real,
-      origin:idx===0&&S.driverHome?{address:S.driverHome,label:'Casa del conductor'}:null,
-      dropoff:{address:ordered[0].dropoff,label:shortLbl(ordered[0].dropoff),time:m2t(arrM),leg:legs[n]},
-      depTime:m2t(departure),arrTime:m2t(arrM),totalMin:arrM-departure,
-      earliest:m2t(earliestM),latest:m2t(latestM),warning,lateBy
-    });
+    // Si llegamos hasta aquí, todos los trips están dentro de tolerancia
+    break;
+  }
+
+  if(unavoidableLateness.length){
+    const names=unavoidableLateness.map(u=>u.patient.name+' ('+u.minutesLate+' min)').join(', ');
+    toast('⚠ Citas imposibles de cumplir a tiempo: '+names,'err');
   }
 
   const returnable=valid.filter(p=>p.returnAddress);
@@ -710,7 +746,7 @@ function renderRoutes(){
   const trafficNote=anyReal&&isFuture?'Tráfico previsto para '+dayName:'Sin patrón de tráfico (fecha pasada)';
   wrap.innerHTML='<div class="sec-h" style="margin-top:1.5rem"><h2 class="sec-t">Plan del día ('+S.trips.length+' viaje'+(S.trips.length>1?'s':'')+')</h2>'+
     '<span class="mode-i '+(anyReal?'real':'est')+'"><i class="ti '+(anyReal?'ti-map-pin':'ti-clock')+'"></i> '+(anyReal?'Tiempos reales':'Estimación fija')+'</span></div>'+
-    '<div class="warn info" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue-b);margin-bottom:14px"><i class="ti ti-info-circle"></i> <span>Pickups y dropoffs en casa se muestran como ventana de '+PICKUP_WINDOW_MIN+' min para dar holgura al conductor. '+(anyReal?trafficNote+'. Pacientes agrupados solo si viven dentro de '+PROXIMITY_MAX_MILES+' millas entre sí.':'')+'</span></div>'+
+    '<div class="warn info" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue-b);margin-bottom:14px"><i class="ti ti-info-circle"></i> <span>Pickups y dropoffs en casa se muestran como ventana de '+PICKUP_WINDOW_MIN+' min para dar holgura al conductor. Ningún paciente llega más de '+MAX_LATE_MIN+' min tarde a su cita (si no es posible, se re-agrupa automáticamente). '+(anyReal?trafficNote+'. Pacientes agrupados solo si viven dentro de '+PROXIMITY_MAX_MILES+' millas entre sí.':'')+'</span></div>'+
     S.trips.map(t=>t.kind==='outbound'?renderOut(t):renderRet(t)).join('');
 }
 
