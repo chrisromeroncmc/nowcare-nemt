@@ -274,9 +274,9 @@ header{flex-direction:column;align-items:stretch}
 
 <script>
 const NOWCARE_ADDR='14601 SW 104th St, Miami, FL 33186';
-const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=6,MAX_LATE_MIN=5;
+const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=10,MAX_LATE_MIN=5;
 
-const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null,editingId:null};
+const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null,editingId:null,unavoidableLateness:[]};
 
 function todayISO(){const d=new Date(),tz=d.getTimezoneOffset();return new Date(d.getTime()-tz*60000).toISOString().split('T')[0]}
 function t2m(t){if(!t)return 0;const[h,m]=t.split(':').map(Number);return h*60+m}
@@ -558,9 +558,11 @@ async function planRoutes(){
 
       // Detectar lateness: cualquier paciente que llegue más de MAX_LATE_MIN tarde
       const lateForAny=ordered.some(p=>arrM>t2m(p.time)+MAX_LATE_MIN);
+      // Split solo ayuda si el problema es el tiempo del propio trip (no van ocupada de antes)
+      const vanBusyDelayed=warning!==null;
 
-      if(lateForAny&&g.length>1){
-        // Split: separar al paciente con cita MÁS TEMPRANA en su propio trip
+      if(lateForAny&&g.length>1&&!vanBusyDelayed){
+        // Split útil: separar al paciente con cita MÁS TEMPRANA en su propio trip
         const sortedByAppt=[...g].sort((a,b)=>t2m(a.time)-t2m(b.time));
         const solo=[sortedByAppt[0]];
         const rest=sortedByAppt.slice(1);
@@ -574,9 +576,14 @@ async function planRoutes(){
       vanReady=tripEndM+5;
       const lateBy=Math.max(0,arrM-earliestM);
 
-      // Si aún hay lateness con paciente solo, es inevitable
-      if(lateForAny&&g.length===1){
-        unavoidableLateness.push({patient:ordered[0],minutesLate:arrM-t2m(ordered[0].time)});
+      // Si aún hay lateness (van sobrecargada o paciente solo), marcar como inevitable
+      if(lateForAny){
+        for(const p of ordered){
+          const late=arrM-t2m(p.time);
+          if(late>MAX_LATE_MIN){
+            unavoidableLateness.push({patient:p,minutesLate:late,tripIdx:trips.length});
+          }
+        }
       }
 
       trips.push({
@@ -591,10 +598,7 @@ async function planRoutes(){
     break;
   }
 
-  if(unavoidableLateness.length){
-    const names=unavoidableLateness.map(u=>u.patient.name+' ('+u.minutesLate+' min)').join(', ');
-    toast('⚠ Citas imposibles de cumplir a tiempo: '+names,'err');
-  }
+  S.unavoidableLateness=unavoidableLateness;
 
   const returnable=valid.filter(p=>p.returnAddress);
   const retDistMap=await computeHomeDistances(returnable,'returnAddress');
@@ -744,9 +748,20 @@ function renderRoutes(){
   const isFuture=getDepartureDate(S.date,12*60)!==null;
   const dayName=dayLabel(S.date);
   const trafficNote=anyReal&&isFuture?'Tráfico previsto para '+dayName:'Sin patrón de tráfico (fecha pasada)';
+  const lateList=S.unavoidableLateness||[];
+  let lateBanner='';
+  if(lateList.length){
+    const items=lateList.map(u=>'<li><strong>'+esc(u.patient.name)+'</strong> — cita '+fmt12(u.patient.time)+', llega '+u.minutesLate+' min tarde</li>').join('');
+    lateBanner='<div style="background:#fee;border:2px solid #c62;border-radius:10px;padding:14px 16px;margin-bottom:14px">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-alert-triangle" style="color:#c62;font-size:20px"></i> <strong style="color:#a41;font-size:15px">Van sobrecargada — no puede cumplir con estas '+lateList.length+' cita'+(lateList.length>1?'s':'')+':</strong></div>'+
+      '<ul style="margin:6px 0 10px 30px;color:#a41;font-size:13px;line-height:1.6">'+items+'</ul>'+
+      '<div style="color:#a41;font-size:12px;font-style:italic">Opciones: reprogramar cita a horario más tarde, coordinar con Uber Health/familia, o agregar segunda van al día.</div>'+
+      '</div>';
+  }
   wrap.innerHTML='<div class="sec-h" style="margin-top:1.5rem"><h2 class="sec-t">Plan del día ('+S.trips.length+' viaje'+(S.trips.length>1?'s':'')+')</h2>'+
     '<span class="mode-i '+(anyReal?'real':'est')+'"><i class="ti '+(anyReal?'ti-map-pin':'ti-clock')+'"></i> '+(anyReal?'Tiempos reales':'Estimación fija')+'</span></div>'+
-    '<div class="warn info" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue-b);margin-bottom:14px"><i class="ti ti-info-circle"></i> <span>Pickups y dropoffs en casa se muestran como ventana de '+PICKUP_WINDOW_MIN+' min para dar holgura al conductor. Ningún paciente llega más de '+MAX_LATE_MIN+' min tarde a su cita (si no es posible, se re-agrupa automáticamente). '+(anyReal?trafficNote+'. Pacientes agrupados solo si viven dentro de '+PROXIMITY_MAX_MILES+' millas entre sí.':'')+'</span></div>'+
+    lateBanner+
+    '<div class="warn info" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue-b);margin-bottom:14px"><i class="ti ti-info-circle"></i> <span>Pickups y dropoffs en casa se muestran como ventana de '+PICKUP_WINDOW_MIN+' min para dar holgura al conductor. La app trata de que ningún paciente llegue más de '+MAX_LATE_MIN+' min tarde. '+(anyReal?trafficNote+'. Pacientes agrupados solo si viven dentro de '+PROXIMITY_MAX_MILES+' millas entre sí.':'')+'</span></div>'+
     S.trips.map(t=>t.kind==='outbound'?renderOut(t):renderRet(t)).join('');
 }
 
@@ -760,7 +775,7 @@ function renderOut(t){
       '<div class="trip-st"><span>Salida <strong>'+fmt12(t.depTime)+'</strong></span><span>Llegada <strong>'+fmt12(t.arrTime)+'</strong></span><span>Duración <strong>'+t.totalMin+' min</strong></span></div>'+
     '</div></div>'+
     (t.warning?'<div class="warn"><i class="ti ti-alert-triangle"></i> '+t.warning+'</div>':'')+
-    (t.lateBy>0?'<div class="warn err"><i class="ti ti-alert-circle"></i> Llegada '+t.lateBy+' min después de la primera cita.</div>':'')+
+    (t.lateBy>0?'<div class="warn err"><i class="ti ti-alert-circle"></i> <strong>PACIENTE LLEGA '+t.lateBy+' MIN TARDE A SU CITA</strong></div>':'')+
     (t.origin?'<p class="trip-stg">Punto de salida</p>'+
       '<div class="stop"><div class="s-num"><i class="ti ti-home"></i></div>'+
         '<div class="s-info"><p class="s-name">'+esc(t.origin.label)+'</p><p class="s-addr">'+esc(t.origin.address)+'</p></div>'+
