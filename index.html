@@ -274,7 +274,7 @@ header{flex-direction:column;align-items:stretch}
 
 <script>
 const NOWCARE_ADDR='14601 SW 104th St, Miami, FL 33186';
-const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=12,PROXIMITY_RESCUE_MILES=18,MAX_LATE_MIN=5,MAX_EARLY_SHIFT_PER_TRIP=15,OP_START_HOUR_M=360;
+const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=15,PROXIMITY_RESCUE_MILES=22,MAX_LATE_MIN=5,MAX_EARLY_SHIFT_PER_TRIP=15,OP_START_HOUR_M=360,OUT_TIME_WINDOW=30,RET_TIME_WINDOW=45;
 
 const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null,editingId:null,unavoidableLateness:[]};
 
@@ -467,7 +467,7 @@ function groupOut(pts,distMap){
     for(const grp of groups){
       if(grp.length>=VAN_CAP)continue;
       if(norm(grp[0].p.dropoff)!==norm(item.p.dropoff))continue;
-      if(t2m(item.p.time)-t2m(grp[0].p.time)>20)continue;
+      if(t2m(item.p.time)-t2m(grp[0].p.time)>OUT_TIME_WINDOW)continue;
       if(distMap){
         const tooFar=grp.some(g=>(distMap[item.i]&&distMap[item.i][g.i]!=null?distMap[item.i][g.i]:Infinity)>PROXIMITY_MAX_MILES);
         if(tooFar)continue;
@@ -488,7 +488,7 @@ function groupRet(pts,distMap){
     for(const grp of groups){
       if(grp.length>=VAN_CAP)continue;
       if(norm(grp[0].p.dropoff)!==norm(item.p.dropoff))continue;
-      if(item.p.endTime-grp[0].p.endTime>30)continue;
+      if(item.p.endTime-grp[0].p.endTime>RET_TIME_WINDOW)continue;
       if(distMap){
         const tooFar=grp.some(g=>(distMap[item.i]&&distMap[item.i][g.i]!=null?distMap[item.i][g.i]:Infinity)>PROXIMITY_MAX_MILES);
         if(tooFar)continue;
@@ -906,7 +906,7 @@ function renderRoutes(){
   wrap.innerHTML='<div class="sec-h" style="margin-top:1.5rem"><h2 class="sec-t">Plan del día ('+S.trips.length+' viaje'+(S.trips.length>1?'s':'')+')</h2>'+
     '<span class="mode-i '+(anyReal?'real':'est')+'"><i class="ti '+(anyReal?'ti-map-pin':'ti-clock')+'"></i> '+(anyReal?'Tiempos reales':'Estimación fija')+'</span></div>'+
     lateBanner+
-    '<div class="warn info" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue-b);margin-bottom:14px"><i class="ti ti-info-circle"></i> <span>Pickups y dropoffs en casa se muestran como ventana de '+PICKUP_WINDOW_MIN+' min para dar holgura al conductor. La app trata de que ningún paciente llegue más de '+MAX_LATE_MIN+' min tarde. '+(anyReal?trafficNote+'. Pacientes agrupados solo si viven dentro de '+PROXIMITY_MAX_MILES+' millas entre sí.':'')+'</span></div>'+
+    '<div class="warn info" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue-b);margin-bottom:14px"><i class="ti ti-info-circle"></i> <span>Agrupamiento: citas dentro de '+OUT_TIME_WINDOW+' min y casas dentro de '+PROXIMITY_MAX_MILES+' millas. Pickups mostrados como ventana de '+PICKUP_WINDOW_MIN+' min. Meta: nadie llega más de '+MAX_LATE_MIN+' min tarde. '+(anyReal?trafficNote+'.':'')+'</span></div>'+
     S.trips.map(t=>t.kind==='outbound'?renderOut(t):renderRet(t)).join('');
 }
 
