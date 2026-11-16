@@ -414,7 +414,10 @@ async function optOutbound(pts,depot,depTime){
   const dur=mtx.map(r=>r.map(e=>e?e.dur:FALLBACK_MIN));
   const idxs=pc.map((_,i)=>i+1);
   const dropIdx=all.length-1;
-  const{order}=bestPerm(dur,0,dropIdx,idxs);
+  // Orden geográfico monotónico: más lejano al destino primero, acercándose progresivamente
+  // Esto evita zigzagueos y da un orden predecible y humano
+  const sortedIdxs=[...idxs].sort((a,b)=>dur[b][dropIdx]-dur[a][dropIdx]);
+  const order=sortedIdxs;
   const opi=order.map(i=>i-1);
   const legs=[];let prev=0;
   for(const i of order){legs.push(dur[prev][i]);prev=i}
