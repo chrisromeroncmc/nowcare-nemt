@@ -274,7 +274,7 @@ header{flex-direction:column;align-items:stretch}
 
 <script>
 const NOWCARE_ADDR='14601 SW 104th St, Miami, FL 33186';
-const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=10,MAX_LATE_MIN=5,MAX_EARLY_SHIFT_PER_TRIP=15,OP_START_HOUR_M=360;
+const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=12,PROXIMITY_RESCUE_MILES=18,MAX_LATE_MIN=5,MAX_EARLY_SHIFT_PER_TRIP=15,OP_START_HOUR_M=360;
 
 const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null,editingId:null,unavoidableLateness:[]};
 
@@ -653,6 +653,94 @@ async function planRoutes(){
       });
     }
     break;
+  }
+
+  // RESCATE: pacientes solos tardíos intentan unirse a grupos cercanos con capacidad
+  // Usa un radio más permisivo (PROXIMITY_RESCUE_MILES) y solo si el merge no causa lateness al grupo
+  let rescueAttempts=0;
+  while(rescueAttempts++<5){
+    let anyRescued=false;
+    for(let i=0;i<trips.length;i++){
+      const t=trips[i];
+      if(t.kind!=='outbound'||t.patients.length!==1||t.lateBy<=MAX_LATE_MIN)continue;
+      const solo=t.patients[0];
+      const soloIdx=valid.indexOf(solo);
+      const soloTimeM=t2m(solo.time);
+      for(let j=0;j<trips.length;j++){
+        if(j===i||trips[j].kind!=='outbound')continue;
+        const other=trips[j];
+        if(other.patients.length>=VAN_CAP)continue;
+        if(norm(other.patients[0].dropoff)!==norm(solo.dropoff))continue;
+        // Tiempo compatible: dentro de 30 min del rango del grupo
+        const otherEarliest=Math.min(...other.patients.map(p=>t2m(p.time)));
+        const otherLatest=Math.max(...other.patients.map(p=>t2m(p.time)));
+        if(soloTimeM<otherEarliest-30||soloTimeM>otherLatest+30)continue;
+        // Proximidad con radio de rescate (más permisivo)
+        if(outDistMap){
+          const tooFar=other.patients.some(gp=>{
+            const gpIdx=valid.indexOf(gp);
+            if(gpIdx<0||!outDistMap[soloIdx])return false;
+            return(outDistMap[soloIdx][gpIdx]||Infinity)>PROXIMITY_RESCUE_MILES;
+          });
+          if(tooFar)continue;
+        }
+        // Mover al grupo: agregar al outG y marcar para re-plan
+        const targetGroup=outG.find(grp=>grp.some(p=>other.patients.includes(p)));
+        const soloGroup=outG.find(grp=>grp.length===1&&grp[0]===solo);
+        if(targetGroup&&soloGroup){
+          targetGroup.push(solo);
+          const sgIdx=outG.indexOf(soloGroup);
+          outG.splice(sgIdx,1);
+          anyRescued=true;
+          break;
+        }
+      }
+      if(anyRescued)break;
+    }
+    if(!anyRescued)break;
+    // Re-planificar outbound con los grupos modificados
+    trips.length=0;vanReady=null;unavoidableLateness.length=0;
+    for(let idx=0;idx<outG.length;idx++){
+      const g=outG[idx];
+      let opt={order:g.map((_,i)=>i),legs:null};
+      let real=false;
+      const tripDepot=idx===0?firstDepot:depot;
+      const earliestApptM=Math.min(...g.map(p=>t2m(p.time)));
+      const anchorM=Math.max(0,earliestApptM-90);
+      const depTime=getDepartureDate(S.date,anchorM);
+      if(S.apiReady&&tripDepot){
+        try{opt=await optOutbound(g,tripDepot,depTime);real=true}catch(e){console.error('Re-opt:',e)}
+      }
+      const ordered=opt.order.map(i=>g[i]);
+      const n=ordered.length;
+      const legs=opt.legs||new Array(n+1).fill(FALLBACK_MIN);
+      const earliestM=Math.min(...ordered.map(p=>t2m(p.time)));
+      const latestM=Math.max(...ordered.map(p=>t2m(p.time)));
+      const targetM=earliestM-BUFFER_MIN;
+      const totalTrav=legs.reduce((a,b)=>a+b,0);
+      const totalMin=totalTrav+n*STOP_TIME;
+      let dep=targetM-totalMin;
+      let warn=null;
+      if(vanReady!==null&&dep<vanReady){dep=vanReady;warn='Van regresa de viaje previo a las '+fmt12(m2t(vanReady))+'. Pickup ajustado.';}
+      let cum=dep;
+      const ps=ordered.map((p,i)=>{cum+=legs[i];const at=cum;cum+=STOP_TIME;return{kind:'pickup',patient:p,time:m2t(at),leg:legs[i]};});
+      const arrM=cum+legs[n];
+      const tripEndM=arrM+n*STOP_TIME;
+      vanReady=tripEndM+5;
+      const lateBy=Math.max(0,arrM-earliestM);
+      for(const p of ordered){
+        const late=arrM-t2m(p.time);
+        if(late>MAX_LATE_MIN)unavoidableLateness.push({patient:p,minutesLate:late,tripIdx:trips.length});
+      }
+      trips.push({
+        kind:'outbound',patients:ordered,pickupStops:ps,realDist:real,
+        origin:idx===0&&S.driverHome?{address:S.driverHome,label:'Casa del conductor'}:null,
+        dropoff:{address:ordered[0].dropoff,label:shortLbl(ordered[0].dropoff),time:m2t(arrM),leg:legs[n]},
+        depTime:m2t(dep),arrTime:m2t(arrM),totalMin:arrM-dep,
+        earliest:m2t(earliestM),latest:m2t(latestM),warning:warn,lateBy,
+        earlyShiftApplied:0,optimalDepM:targetM-totalMin
+      });
+    }
   }
 
   S.unavoidableLateness=unavoidableLateness;
