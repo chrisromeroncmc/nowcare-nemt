@@ -274,7 +274,7 @@ header{flex-direction:column;align-items:stretch}
 
 <script>
 const NOWCARE_ADDR='14601 SW 104th St, Miami, FL 33186';
-const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=10,MAX_LATE_MIN=5;
+const VAN_CAP=4,BUFFER_MIN=30,STOP_TIME=3,RETURN_WAIT=10,FALLBACK_MIN=12,PICKUP_WINDOW_MIN=30,PROXIMITY_MAX_MILES=10,MAX_LATE_MIN=5,MAX_EARLY_SHIFT_PER_TRIP=15,OP_START_HOUR_M=360;
 
 const S={date:todayISO(),patients:[],trips:[],apiKey:null,apiReady:false,apiError:null,geocodeCache:{},isPlanning:false,driverHome:null,editingId:null,unavoidableLateness:[]};
 
@@ -435,7 +435,10 @@ async function optReturn(pts,origin,depTime){
   const dur=mtx.map(r=>r.map(e=>e?e.dur:FALLBACK_MIN));
   const idxs=hc.map((_,i)=>i+1);
   const depotIdx=all.length-1;
-  const{order}=bestPerm(dur,0,depotIdx,idxs);
+  // Orden monotónico para returns: el más cercano al origen (clínica) se deja primero,
+  // y los más lejanos se dejan progresivamente hacia el final
+  const sortedIdxs=[...idxs].sort((a,b)=>dur[0][a]-dur[0][b]);
+  const order=sortedIdxs;
   const opi=order.map(i=>i-1);
   const legs=[];let prev=0;
   for(const i of order){legs.push(dur[prev][i]);prev=i}
@@ -499,22 +502,26 @@ function groupRet(pts,distMap){
 
 // Empuja los trips previos a salir antes para liberar la van a tiempo.
 // Retorna cuántos minutos logró recuperar (0 si no pudo).
-// Límite operacional: ningún trip sale antes de las 5:00 AM (300 min).
+// Límites estrictos:
+//   - Ningún trip sale antes de OP_START_HOUR_M (6:00 AM)
+//   - Ningún trip se adelanta más de MAX_EARLY_SHIFT_PER_TRIP (15 min)
+//     desde su hora ÓPTIMA original (guardada en t.optimalDepM)
+//   - Ningún trip se adelanta encima del trip anterior
 function pullForwardTrips(trips,slackNeeded){
-  const OP_START_M=300; // 5:00 AM
   let totalRecovered=0;
   for(let i=0;i<trips.length;i++){
     const t=trips[i];
     const currentDepM=t2m(t.depTime);
-    // El trip anterior termina (arr + stops + 5 min buffer)
-    const prevEndM=i===0?OP_START_M:(t2m(trips[i-1].arrTime)+trips[i-1].patients.length*STOP_TIME+5);
-    const maxShiftByVan=Math.max(0,currentDepM-prevEndM);
-    const shiftThis=Math.min(maxShiftByVan,slackNeeded-totalRecovered);
+    const prevEndM=i===0?OP_START_HOUR_M:(t2m(trips[i-1].arrTime)+trips[i-1].patients.length*STOP_TIME+5);
+    // Límite absoluto: nunca antes de (optimalDepM - MAX_EARLY_SHIFT_PER_TRIP)
+    const earliestAllowed=Math.max(prevEndM,(t.optimalDepM||currentDepM)-MAX_EARLY_SHIFT_PER_TRIP);
+    const maxShiftAllowed=Math.max(0,currentDepM-earliestAllowed);
+    const shiftThis=Math.min(maxShiftAllowed,slackNeeded-totalRecovered);
     if(shiftThis>0){
       t.depTime=m2t(currentDepM-shiftThis);
       t.arrTime=m2t(t2m(t.arrTime)-shiftThis);
       t.dropoff.time=t.arrTime;
-      t.earlyShiftApplied=(t.earlyShiftApplied||0)+shiftThis;
+      t.earlyShiftApplied=(t.optimalDepM||currentDepM)-(currentDepM-shiftThis);
       for(const stop of t.pickupStops){
         stop.time=m2t(t2m(stop.time)-shiftThis);
       }
@@ -634,13 +641,15 @@ async function planRoutes(){
         }
       }
 
+      // Hora ÓPTIMA de salida (sin van_busy): target - total travel time
+      const optimalDepM=targetM-totalMin;
       trips.push({
         kind:'outbound',patients:ordered,pickupStops:calc.ps,realDist:real,
         origin:idx===0&&S.driverHome?{address:S.driverHome,label:'Casa del conductor'}:null,
         dropoff:{address:ordered[0].dropoff,label:shortLbl(ordered[0].dropoff),time:m2t(arrM),leg:legs[n]},
         depTime:m2t(calc.departure),arrTime:m2t(arrM),totalMin:arrM-calc.departure,
         earliest:m2t(earliestM),latest:m2t(latestM),warning:calc.warning,lateBy,
-        earlyShiftApplied:0
+        earlyShiftApplied:0,optimalDepM
       });
     }
     break;
