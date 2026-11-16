@@ -494,6 +494,34 @@ function groupRet(pts,distMap){
   return groups.map(grp=>grp.map(item=>item.p));
 }
 
+// Empuja los trips previos a salir antes para liberar la van a tiempo.
+// Retorna cuántos minutos logró recuperar (0 si no pudo).
+// Límite operacional: ningún trip sale antes de las 5:00 AM (300 min).
+function pullForwardTrips(trips,slackNeeded){
+  const OP_START_M=300; // 5:00 AM
+  let totalRecovered=0;
+  for(let i=0;i<trips.length;i++){
+    const t=trips[i];
+    const currentDepM=t2m(t.depTime);
+    // El trip anterior termina (arr + stops + 5 min buffer)
+    const prevEndM=i===0?OP_START_M:(t2m(trips[i-1].arrTime)+trips[i-1].patients.length*STOP_TIME+5);
+    const maxShiftByVan=Math.max(0,currentDepM-prevEndM);
+    const shiftThis=Math.min(maxShiftByVan,slackNeeded-totalRecovered);
+    if(shiftThis>0){
+      t.depTime=m2t(currentDepM-shiftThis);
+      t.arrTime=m2t(t2m(t.arrTime)-shiftThis);
+      t.dropoff.time=t.arrTime;
+      t.earlyShiftApplied=(t.earlyShiftApplied||0)+shiftThis;
+      for(const stop of t.pickupStops){
+        stop.time=m2t(t2m(stop.time)-shiftThis);
+      }
+      totalRecovered+=shiftThis;
+      if(totalRecovered>=slackNeeded)break;
+    }
+  }
+  return totalRecovered;
+}
+
 async function planRoutes(){
   const valid=S.patients.filter(p=>p.name&&p.address&&p.dropoff&&p.time);
   if(!valid.length)return[];
@@ -541,25 +569,43 @@ async function planRoutes(){
       const targetM=earliestM-BUFFER_MIN;
       const totalTrav=legs.reduce((a,b)=>a+b,0);
       const totalMin=totalTrav+n*STOP_TIME;
-      let departure=targetM-totalMin;
-      let warning=null;
-      if(vanReady!==null&&departure<vanReady){
-        departure=vanReady;
-        warning='Van regresa de viaje previo a las '+fmt12(m2t(vanReady))+'. Pickup ajustado.';
-      }
-      let cum=departure;
-      const ps=ordered.map((p,i)=>{
-        cum+=legs[i];
-        const at=cum;
-        cum+=STOP_TIME;
-        return{kind:'pickup',patient:p,time:m2t(at),leg:legs[i]};
-      });
-      const arrM=cum+legs[n];
 
-      // Detectar lateness: cualquier paciente que llegue más de MAX_LATE_MIN tarde
-      const lateForAny=ordered.some(p=>arrM>t2m(p.time)+MAX_LATE_MIN);
-      // Split solo ayuda si el problema es el tiempo del propio trip (no van ocupada de antes)
-      const vanBusyDelayed=warning!==null;
+      // Función para calcular el trip dado una vanReady actual
+      function computeTripTimes(currentVanReady){
+        let dep=targetM-totalMin;
+        let warn=null;
+        if(currentVanReady!==null&&dep<currentVanReady){
+          dep=currentVanReady;
+          warn='Van regresa de viaje previo a las '+fmt12(m2t(currentVanReady))+'. Pickup ajustado.';
+        }
+        let c=dep;
+        const stops=ordered.map((p,i)=>{
+          c+=legs[i];
+          const at=c;
+          c+=STOP_TIME;
+          return{kind:'pickup',patient:p,time:m2t(at),leg:legs[i]};
+        });
+        return{departure:dep,warning:warn,ps:stops,arrM:c+legs[n]};
+      }
+
+      let calc=computeTripTimes(vanReady);
+      let lateForAny=ordered.some(p=>calc.arrM>t2m(p.time)+MAX_LATE_MIN);
+      let vanBusyDelayed=calc.warning!==null;
+
+      // PULL-FORWARD: Si estamos tarde por van ocupada, empujar trips previos a salir antes
+      if(lateForAny&&vanBusyDelayed&&trips.length>0){
+        const neededArrivalM=earliestM+MAX_LATE_MIN;
+        const slackNeeded=calc.arrM-neededArrivalM;
+        const recovered=pullForwardTrips(trips,slackNeeded);
+        if(recovered>0){
+          // Recalcular vanReady desde el último trip modificado
+          const lastT=trips[trips.length-1];
+          vanReady=t2m(lastT.arrTime)+lastT.patients.length*STOP_TIME+5;
+          calc=computeTripTimes(vanReady);
+          lateForAny=ordered.some(p=>calc.arrM>t2m(p.time)+MAX_LATE_MIN);
+          vanBusyDelayed=calc.warning!==null;
+        }
+      }
 
       if(lateForAny&&g.length>1&&!vanBusyDelayed){
         // Split útil: separar al paciente con cita MÁS TEMPRANA en su propio trip
@@ -567,16 +613,15 @@ async function planRoutes(){
         const solo=[sortedByAppt[0]];
         const rest=sortedByAppt.slice(1);
         outG.splice(idx,1,solo,rest);
-        // Re-ordenar outG por earliest-en-grupo
         outG.sort((a,b)=>Math.min(...a.map(p=>t2m(p.time)))-Math.min(...b.map(p=>t2m(p.time))));
         continue replanLoop;
       }
 
+      const arrM=calc.arrM;
       const tripEndM=arrM+n*STOP_TIME;
       vanReady=tripEndM+5;
       const lateBy=Math.max(0,arrM-earliestM);
 
-      // Si aún hay lateness (van sobrecargada o paciente solo), marcar como inevitable
       if(lateForAny){
         for(const p of ordered){
           const late=arrM-t2m(p.time);
@@ -587,14 +632,14 @@ async function planRoutes(){
       }
 
       trips.push({
-        kind:'outbound',patients:ordered,pickupStops:ps,realDist:real,
+        kind:'outbound',patients:ordered,pickupStops:calc.ps,realDist:real,
         origin:idx===0&&S.driverHome?{address:S.driverHome,label:'Casa del conductor'}:null,
         dropoff:{address:ordered[0].dropoff,label:shortLbl(ordered[0].dropoff),time:m2t(arrM),leg:legs[n]},
-        depTime:m2t(departure),arrTime:m2t(arrM),totalMin:arrM-departure,
-        earliest:m2t(earliestM),latest:m2t(latestM),warning,lateBy
+        depTime:m2t(calc.departure),arrTime:m2t(arrM),totalMin:arrM-calc.departure,
+        earliest:m2t(earliestM),latest:m2t(latestM),warning:calc.warning,lateBy,
+        earlyShiftApplied:0
       });
     }
-    // Si llegamos hasta aquí, todos los trips están dentro de tolerancia
     break;
   }
 
@@ -775,6 +820,7 @@ function renderOut(t){
       '<div class="trip-st"><span>Salida <strong>'+fmt12(t.depTime)+'</strong></span><span>Llegada <strong>'+fmt12(t.arrTime)+'</strong></span><span>Duración <strong>'+t.totalMin+' min</strong></span></div>'+
     '</div></div>'+
     (t.warning?'<div class="warn"><i class="ti ti-alert-triangle"></i> '+t.warning+'</div>':'')+
+    (t.earlyShiftApplied>0?'<div class="warn info" style="background:#eef7ee;color:#2d5a2d;border-color:#b5d7b5"><i class="ti ti-clock-bolt"></i> Trip adelantado '+t.earlyShiftApplied+' min para que trips posteriores lleguen a tiempo.</div>':'')+
     (t.lateBy>0?'<div class="warn err"><i class="ti ti-alert-circle"></i> <strong>PACIENTE LLEGA '+t.lateBy+' MIN TARDE A SU CITA</strong></div>':'')+
     (t.origin?'<p class="trip-stg">Punto de salida</p>'+
       '<div class="stop"><div class="s-num"><i class="ti ti-home"></i></div>'+
